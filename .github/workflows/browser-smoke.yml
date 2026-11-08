@@ -1,0 +1,21 @@
+name: Optional browser smoke
+on:
+  workflow_dispatch:
+    inputs:
+      expect-failure:
+        description: Deliberately fail the synthetic smoke to verify trace/screenshot artifacts.
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: browser-smoke-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  smoke:
+    uses: ./.github/workflows/quality-gate.yml
+    with:
+      playwright: true
+      smoke-script: ${{ inputs.expect-failure && 'test:smoke:failure' || 'test:smoke' }}
+      upload-playwright-failures: true
+      report-name: browser-smoke-report

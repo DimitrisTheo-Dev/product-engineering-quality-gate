@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.quality-gate/
+playwright-report/
+test-results/
+.env
+.env.*
+.fallow/
+*.log
+.DS_Store
