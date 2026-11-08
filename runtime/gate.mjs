@@ -88,7 +88,7 @@ export function planChecks(pkg, options = {}) {
     },
     script("Existing quality checks", "extra-script"),
     script("Typecheck", "typecheck-script", true),
-    script("Tests", "test-script"),
+    script("Tests", "test-script", Boolean(scripts.test || scripts["test:ci"])),
     script("Build", "build-script", true),
     script("Product behavior", "product-script"),
     {

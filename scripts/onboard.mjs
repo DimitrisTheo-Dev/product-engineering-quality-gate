@@ -26,7 +26,7 @@ const help = `Usage: node scripts/onboard.mjs --repo /path/to/repo [--dry-run | 
   --working-directory <p>  Package to check; installation and dependencies stay at repository root.
   --typecheck-script <s>   Existing script, default typecheck.
   --build-script <s>       Existing script, default build.
-  --test-script <s>        Default auto: test:ci, then test. Empty explicitly disables tests.
+  --test-script <s>        Default auto: test:ci, then test. Existing tests cannot be disabled.
   --product-script <s>     Optional consumer behavior tests (e.g. test:product).
   --react-doctor          Opt in, React packages only; review its separate license.
   --fallow                Opt in to Fallow; runs only with deep: true in the caller.
@@ -127,6 +127,10 @@ export function adoptionPlan(options) {
     if (!scripts[name])
       warnings.push(`Missing required script '${name}'; the gate will fail until you add it.`);
   const tests = options["test-script"] ?? "auto";
+  if (tests === "" && (scripts.test || scripts["test:ci"]))
+    warnings.push(
+      "Existing tests cannot be disabled with an empty input; select a real CI test script.",
+    );
   if (tests === "auto" && !scripts["test:ci"] && !scripts.test)
     warnings.push("No test script detected: Tests will be NOT CONFIGURED.");
   for (const name of [tests === "auto" ? "" : tests, options["product-script"] ?? ""])

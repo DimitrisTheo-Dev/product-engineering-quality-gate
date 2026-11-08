@@ -12,7 +12,7 @@ const descriptions = {
   "typecheck-script": "Required existing package script for type checking.",
   "build-script": "Required existing package script for the production build.",
   "test-script":
-    "auto selects test:ci then test; an explicit name is required to exist; empty disables tests.",
+    "auto selects test:ci then test; an explicit name must exist; empty cannot disable configured tests.",
   "product-script": "Optional consumer behavior test script, such as test:product.",
   "extra-script": "Optional existing lint or CI setup script; retains checks beyond Oxlint.",
   "smoke-script": "Optional fast smoke test script; runs on every invocation when selected.",

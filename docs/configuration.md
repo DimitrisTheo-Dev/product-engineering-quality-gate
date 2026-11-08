@@ -2,25 +2,25 @@
 
 Invoke `.github/workflows/quality-gate.yml` at a full release commit SHA. The generated caller supplies read-only permissions, PR/main triggers, and cancellation of obsolete runs. The workflow has no declared secrets. Do not add `secrets: inherit`.
 
-| Input                        | Default          | Behavior                                                                                                                                              |
-| ---------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `node-version`               | `24.22.2`        | Runtime supplied to SHA-pinned setup-node. Prefer an exact supported version.                                                                         |
-| `working-directory`          | `.`              | Relative package directory; must remain inside checkout, including symlinks. Root owns lockfile/install.                                              |
-| `typecheck-script`           | `typecheck`      | Required package script; empty or missing fails.                                                                                                      |
-| `build-script`               | `build`          | Required package script; empty or missing fails.                                                                                                      |
-| `test-script`                | `auto`           | Chooses `test:ci` then `test`. Absent tests are NOT CONFIGURED; an explicitly selected missing script fails. Empty explicitly disables this check.    |
-| `extra-script`               | empty            | Additional existing lint/CI setup script. Selected scripts must exist and pass. Onboarding retains an existing `lint` here.                           |
-| `product-script`             | empty            | Consumer behavior tests, e.g. `test:product`; runs in fast gate when selected.                                                                        |
-| `smoke-script`               | empty            | Fast consumer smoke tests; runs when selected.                                                                                                        |
-| `react-doctor`               | `false`          | Run React Doctor only in a package declaring React. Missing local exact-version dependency fails.                                                     |
-| `fallow`                     | `false`          | Enable dead code, duplication, complexity, architecture; runs only with `deep: true`.                                                                 |
-| `e2e-script`                 | empty            | Runs only with `deep: true`.                                                                                                                          |
-| `security-script`            | empty            | Consumer dependency/security command; runs only with `deep: true`.                                                                                    |
-| `deep`                       | `false`          | Enables configured Fallow, E2E, and dependency/security checks.                                                                                       |
-| `playwright`                 | `false`          | Installs Chromium with system dependencies from local pinned `@playwright/test` when selected browser tests will run.                                 |
-| `upload-playwright-failures` | `false`          | On failure upload `test-results/` and `playwright-report/` in the package directory; three-day retention. Opt in only after reviewing their contents. |
-| `check-timeout-seconds`      | `300`            | Per-command timeout, integer 1..1200; Unix child process groups are stopped. Job limit is 30 minutes.                                                 |
-| `report-name`                | `quality-report` | Unique artifact name, seven-day retention. Set distinct names for matrix entries or multiple calls in a run.                                          |
+| Input                        | Default          | Behavior                                                                                                                                                                                       |
+| ---------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `node-version`               | `24.22.2`        | Runtime supplied to SHA-pinned setup-node. Prefer an exact supported version.                                                                                                                  |
+| `working-directory`          | `.`              | Relative package directory; must remain inside checkout, including symlinks. Root owns lockfile/install.                                                                                       |
+| `typecheck-script`           | `typecheck`      | Required package script; empty or missing fails.                                                                                                                                               |
+| `build-script`               | `build`          | Required package script; empty or missing fails.                                                                                                                                               |
+| `test-script`                | `auto`           | Chooses `test:ci` then `test`. Absent tests are NOT CONFIGURED; an explicitly selected missing script fails. An empty input cannot disable configured tests; missing required selection fails. |
+| `extra-script`               | empty            | Additional existing lint/CI setup script. Selected scripts must exist and pass. Onboarding retains an existing `lint` here.                                                                    |
+| `product-script`             | empty            | Consumer behavior tests, e.g. `test:product`; runs in fast gate when selected.                                                                                                                 |
+| `smoke-script`               | empty            | Fast consumer smoke tests; runs when selected.                                                                                                                                                 |
+| `react-doctor`               | `false`          | Run React Doctor only in a package declaring React. Missing local exact-version dependency fails.                                                                                              |
+| `fallow`                     | `false`          | Enable dead code, duplication, complexity, architecture; runs only with `deep: true`.                                                                                                          |
+| `e2e-script`                 | empty            | Runs only with `deep: true`.                                                                                                                                                                   |
+| `security-script`            | empty            | Consumer dependency/security command; runs only with `deep: true`.                                                                                                                             |
+| `deep`                       | `false`          | Enables configured Fallow, E2E, and dependency/security checks.                                                                                                                                |
+| `playwright`                 | `false`          | Installs Chromium with system dependencies from local pinned `@playwright/test` when selected browser tests will run.                                                                          |
+| `upload-playwright-failures` | `false`          | On failure upload `test-results/` and `playwright-report/` in the package directory; three-day retention. Opt in only after reviewing their contents.                                          |
+| `check-timeout-seconds`      | `300`            | Per-command timeout, integer 1..1200; Unix child process groups are stopped. Job limit is 30 minutes.                                                                                          |
+| `report-name`                | `quality-report` | Unique artifact name, seven-day retention. Set distinct names for matrix entries or multiple calls in a run.                                                                                   |
 
 Formatting and linting always run directly against local pinned tools:
 

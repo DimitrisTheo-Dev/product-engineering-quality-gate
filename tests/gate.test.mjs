@@ -103,6 +103,14 @@ test("a failing consumer test and a missing required typecheck both fail", (t) =
   assert.equal(result.report.checks.find((c) => c.name === "Typecheck").status, "FAIL");
 });
 
+test("configured tests cannot be silently disabled with an empty input", (t) => {
+  const result = runGate(fixture(t, { test: 'node -e "process.exit(0)"' }), { "test-script": "" });
+  assert.equal(result.status, 1);
+  const row = result.report.checks.find((c) => c.name === "Tests");
+  assert.equal(row.status, "NOT CONFIGURED");
+  assert.equal(row.required, true);
+});
+
 test("missing lockfile makes checks unavailable and fails setup", (t) => {
   const dir = fixture(t);
   rmSync(join(dir, "package-lock.json"));

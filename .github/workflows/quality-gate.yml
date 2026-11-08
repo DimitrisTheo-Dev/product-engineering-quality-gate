@@ -20,7 +20,7 @@ on:
         type: string
         default: build
       test-script:
-        description: auto selects test:ci then test; an explicit name is required to exist; empty disables tests.
+        description: auto selects test:ci then test; an explicit name must exist; empty cannot disable configured tests.
         required: false
         type: string
         default: auto
@@ -206,7 +206,7 @@ jobs:
               },
               script("Existing quality checks", "extra-script"),
               script("Typecheck", "typecheck-script", true),
-              script("Tests", "test-script"),
+              script("Tests", "test-script", Boolean(scripts.test || scripts["test:ci"])),
               script("Build", "build-script", true),
               script("Product behavior", "product-script"),
               {
