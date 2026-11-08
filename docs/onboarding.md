@@ -32,7 +32,7 @@ node quality-gate-tools/scripts/onboard.mjs --repo /path/to/monorepo --dry-run -
 
 - npm: `package-lock.json` or `npm-shrinkwrap.json`; an absent lockfile is created in apply mode. An exact `packageManager: npm@x.y.z` is honored through pinned Corepack; absent declaration uses setup-node's npm.
 - pnpm: one root `pnpm-lock.yaml` and exact `packageManager: pnpm@x.y.z`; use `pnpm install --frozen-lockfile --ignore-scripts` locally.
-- Yarn: one root `yarn.lock`, exact `packageManager: yarn@x.y.z`, and node_modules linking. Use `--frozen-lockfile --ignore-scripts` for Yarn 1, `--immutable --mode=skip-builds` for modern Yarn. Set `nodeLinker: node-modules` for modern Yarn.
+- Yarn: one root `yarn.lock`, exact `packageManager: yarn@x.y.z`, and node_modules linking. Use `--frozen-lockfile --ignore-scripts` for Yarn 1, `--immutable --mode=skip-build` for modern Yarn. Set `nodeLinker: node-modules` for modern Yarn.
 - Bun and Yarn PnP: detected, not modified by this v1. Keep existing CI and use a supported install layout or wait for a tested adapter. No silent conversion to npm.
 
 For pinned package managers the runner uses `npm exec --yes --package=corepack@0.36.0 -- corepack MANAGER ...`; Corepack downloads only the explicitly declared manager. Quality executables come from the project's locked installation. No local global package manager is installed by onboarding.

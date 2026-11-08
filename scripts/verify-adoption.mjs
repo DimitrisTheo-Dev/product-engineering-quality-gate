@@ -51,11 +51,9 @@ try {
   ];
   if (process.argv.includes("--managers"))
     cases.push(
-      ...[
-        { stack: "node-ts", manager: "pnpm@12.18.0" },
-        { stack: "node-ts", manager: "yarn@1.22.22" },
-        { stack: "node-ts", manager: "yarn@4.18.1" },
-      ],
+      { stack: "node-ts", manager: "pnpm@12.18.0" },
+      { stack: "node-ts", manager: "yarn@1.22.22" },
+      { stack: "node-ts", manager: "yarn@4.18.1" },
     );
   for (const { stack, manager } of cases) {
     const dir = join(sandbox, `${stack}-${manager.replace("@", "-")}`);
@@ -75,14 +73,20 @@ try {
       "# Existing CI must survive byte-for-byte.\n",
     );
     const before = files(dir);
-    const plan = adoptionPlan({ repo: dir, ref });
+    const advanced = process.argv.includes("--advanced");
+    const options = {
+      repo: dir,
+      ref,
+      ...(advanced ? { fallow: true, "react-doctor": stack === "react-ts" } : {}),
+    };
+    const plan = adoptionPlan(options);
     assert.deepEqual(files(dir), before, "dry run changed files");
     applyPlan(plan);
     for (const [path, contents] of before)
       if (!path.endsWith("package.json"))
         assert.equal(readFileSync(path, "utf8"), contents, `changed unrelated file: ${path}`);
     const applied = files(dir);
-    const again = adoptionPlan({ repo: dir, ref });
+    const again = adoptionPlan(options);
     assert.deepEqual(again.changes, []);
     applyPlan(again);
     assert.deepEqual(files(dir), applied, "apply was not idempotent");
@@ -94,17 +98,19 @@ try {
           ? ["install", "--frozen-lockfile", "--ignore-scripts"]
           : plan.manager.version.startsWith("1.")
             ? ["install", "--frozen-lockfile", "--ignore-scripts"]
-            : ["install", "--immutable", "--mode=skip-builds"];
+            : ["install", "--immutable", "--mode=skip-build"];
     run(command, [...prefix, ...installArgs], dir);
     const output = run(process.execPath, [join(root, "runtime/gate.mjs"), "--no-install"], dir, {
       GITHUB_WORKSPACE: dir,
       GITHUB_STEP_SUMMARY: "",
-      QG_OPTIONS: "{}",
+      QG_OPTIONS: JSON.stringify(
+        advanced ? { fallow: true, deep: true, "react-doctor": stack === "react-ts" } : {},
+      ),
     });
     const report = JSON.parse(readFileSync(join(dir, ".quality-gate/report.json"), "utf8"));
     assert.equal(report.passed, true, output);
     console.log(
-      `${stack} (${manager}): PASS dry run, apply, preservation, idempotency, locked install, Oxfmt, Oxlint, typecheck, tests, build.`,
+      `${stack} (${manager}): PASS dry run, apply, preservation, idempotency, locked install, Oxfmt, Oxlint, typecheck, tests, build${advanced ? ", Fallow" + (stack === "react-ts" ? ", React Doctor" : "") : ""}.`,
     );
   }
 } finally {

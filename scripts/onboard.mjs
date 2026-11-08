@@ -284,7 +284,7 @@ export function applyPlan(plan) {
             ? ["install", "--lockfile-only", "--ignore-scripts", "--no-frozen-lockfile"]
             : version?.startsWith("1.")
               ? ["install", "--ignore-scripts"]
-              : ["install", "--no-immutable", "--mode=skip-builds"];
+              : ["install", "--no-immutable", "--mode=skip-build"];
       // Explicit apply may fetch registry metadata, but dependency hooks never run.
       if (name === "npm" && !version) command("npm", args, plan.root, false);
       else

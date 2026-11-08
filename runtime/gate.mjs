@@ -218,7 +218,7 @@ export async function install(root, manager, seconds) {
         ? ["install", "--frozen-lockfile", "--ignore-scripts"]
         : manager.version?.startsWith("1.")
           ? ["install", "--frozen-lockfile", "--ignore-scripts"]
-          : ["install", "--immutable", "--mode=skip-builds"];
+          : ["install", "--immutable", "--mode=skip-build"];
   await run(command, [...prefix, ...args], root, seconds);
 }
 

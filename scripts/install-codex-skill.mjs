@@ -36,7 +36,7 @@ console.log(
     2,
   ),
 );
-if (existsSync(destination)) {
+if (existsSync(destination) && readdirSync(destination).length > 0) {
   const files = readdirSync(source, { recursive: true, withFileTypes: true }).filter((entry) =>
     entry.isFile(),
   );
@@ -54,7 +54,13 @@ if (existsSync(destination)) {
   console.log("Identical skill is already installed; no files changed.");
 } else if (values.apply) {
   mkdirSync(destination, { recursive: true });
-  cpSync(source, destination, { recursive: true, errorOnExist: true, force: false });
+  for (const entry of readdirSync(source)) {
+    cpSync(join(source, entry), join(destination, entry), {
+      recursive: true,
+      errorOnExist: true,
+      force: false,
+    });
+  }
   console.log(
     "Installed. Restart Codex if the skill does not appear. No global instructions or configuration were edited.",
   );
