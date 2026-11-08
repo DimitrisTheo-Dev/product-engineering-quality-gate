@@ -1,3 +1,4 @@
+# Manual browser plumbing verification with safe, synthetic text only.
 name: Optional browser smoke
 on:
   workflow_dispatch:

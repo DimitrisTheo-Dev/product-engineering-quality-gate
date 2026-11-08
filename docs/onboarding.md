@@ -37,6 +37,8 @@ node quality-gate-tools/scripts/onboard.mjs --repo /path/to/monorepo --dry-run -
 
 For pinned package managers the runner uses `npm exec --yes --package=corepack@0.36.0 -- corepack MANAGER ...`; Corepack downloads only the explicitly declared manager. Quality executables come from the project's locked installation. No local global package manager is installed by onboarding.
 
+pnpm dependency-age/trust policy remains authoritative. Apply uses noninteractive strict release-age resolution and refuses/rolls back workspace policy changes. A newly released pinned optional tool may need to age into your policy or be replaced with a manually selected eligible exact version. Onboarding never adds a minimum-release-age exception to make installation pass.
+
 Run onboarding again with identical options: it reports no changes. It refuses a different existing caller rather than guessing how to upgrade it. A caller matrix is a manual, small edit; see [examples](examples.md). Onboarding never crawls or enrolls your other repositories.
 
 ## Rollback

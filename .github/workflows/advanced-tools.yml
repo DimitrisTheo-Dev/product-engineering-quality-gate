@@ -19,4 +19,5 @@ jobs:
           node-version: 24.22.2
           package-manager-cache: false
       - run: npm ci --ignore-scripts --no-audit --no-fund
-      - run: npm run test:adoption -- --advanced --managers
+      - run: npm run test:adoption -- --advanced
+      - run: npm run test:adoption -- --managers

@@ -31,7 +31,7 @@ function fixture(t, stack = "node-ts") {
 
 function snapshot(dir) {
   return readdirSync(dir, { recursive: true, withFileTypes: true })
-    .filter((entry) => entry.isFile() && !entry.parentPath.includes("/.git"))
+    .filter((entry) => entry.isFile() && !entry.parentPath.split(/[\\/]/).includes(".git"))
     .map((entry) => [
       join(entry.parentPath, entry.name).slice(dir.length),
       readFileSync(join(entry.parentPath, entry.name), "utf8"),

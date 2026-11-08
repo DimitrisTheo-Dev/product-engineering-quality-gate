@@ -34,10 +34,9 @@ function files(dir) {
     .filter(
       (entry) =>
         entry.isFile() &&
-        !entry.parentPath.includes("/.git") &&
-        !entry.parentPath.includes("/node_modules") &&
-        !entry.parentPath.includes("/dist") &&
-        !entry.parentPath.includes("/.quality-gate"),
+        !entry.parentPath
+          .split(/[\\/]/)
+          .some((segment) => [".git", "node_modules", "dist", ".quality-gate"].includes(segment)),
     )
     .map((entry) => [
       join(entry.parentPath, entry.name),

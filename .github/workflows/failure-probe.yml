@@ -1,3 +1,4 @@
+# Manual release verification; intentionally fails and never runs on pull requests.
 name: Expected failure demonstration
 on:
   workflow_dispatch:

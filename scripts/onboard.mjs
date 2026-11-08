@@ -41,6 +41,7 @@ function command(cmd, args, cwd, capture = true) {
     encoding: "utf8",
     stdio: capture ? "pipe" : "inherit",
     timeout: 180_000,
+    env: { ...process.env, CI: "true" },
   });
   if (result.error || result.status !== 0)
     throw new Error(result.error?.message ?? result.stderr?.trim() ?? `${cmd} failed`);
@@ -267,11 +268,15 @@ export function adoptionPlan(options) {
 export function applyPlan(plan) {
   if (plan.conflicts.length) throw new Error("Resolve the adoption conflicts before applying.");
   if (!plan.changes.length) return;
+  const workspacePath = join(plan.root, "pnpm-workspace.yaml");
+  if (plan.manager.name === "pnpm") safePath(plan.root, workspacePath);
   const backups = new Map(
-    [plan.pkgPath, plan.lockPath, plan.workflowPath].map((path) => [
-      path,
-      existsSync(path) ? readFileSync(path) : null,
-    ]),
+    [
+      plan.pkgPath,
+      plan.lockPath,
+      plan.workflowPath,
+      ...(plan.manager.name === "pnpm" ? [workspacePath] : []),
+    ].map((path) => [path, existsSync(path) ? readFileSync(path) : null]),
   );
   try {
     if (plan.packageChanged || !existsSync(plan.lockPath)) {
@@ -281,7 +286,13 @@ export function applyPlan(plan) {
         name === "npm"
           ? ["install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund"]
           : name === "pnpm"
-            ? ["install", "--lockfile-only", "--ignore-scripts", "--no-frozen-lockfile"]
+            ? [
+                "install",
+                "--lockfile-only",
+                "--ignore-scripts",
+                "--no-frozen-lockfile",
+                "--config.minimumReleaseAgeStrict=true",
+              ]
             : version?.startsWith("1.")
               ? ["install", "--ignore-scripts"]
               : ["install", "--no-immutable", "--mode=skip-build"];
@@ -294,6 +305,15 @@ export function applyPlan(plan) {
           plan.root,
           false,
         );
+      if (name === "pnpm") {
+        const before = backups.get(workspacePath);
+        const after = existsSync(workspacePath) ? readFileSync(workspacePath) : null;
+        if ((before === null) !== (after === null) || (before && after && !before.equals(after))) {
+          throw new Error(
+            "pnpm changed workspace policy during dependency resolution; adoption was rolled back. Review minimumReleaseAge and pin eligible versions manually.",
+          );
+        }
+      }
     }
     if (plan.workflowChanged) {
       mkdirSync(dirname(plan.workflowPath), { recursive: true });
