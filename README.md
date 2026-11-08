@@ -1,5 +1,7 @@
 # product-engineering-quality-gate
 
+[![CI](https://github.com/DimitrisTheo-Dev/product-engineering-quality-gate/actions/workflows/ci.yml/badge.svg)](https://github.com/DimitrisTheo-Dev/product-engineering-quality-gate/actions/workflows/ci.yml)
+
 A reusable GitHub Actions gate for JS/TS repositories, with safe onboarding and honest evidence about what was checked. Start with Oxfmt, Oxlint, typecheck, configured tests, and build. Add behavior tests and deeper analysis when they serve the product.
 
 Consumers keep their package scripts and tool configuration. One small caller invokes the central workflow at an immutable commit. There is no hosted service, automatic enrollment, auto-merge, or paid AI work in the PR gate.
