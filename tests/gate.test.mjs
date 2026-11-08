@@ -42,8 +42,8 @@ function fixture(t, scripts = {}) {
   return dir;
 }
 
-function runGate(dir, options = {}) {
-  const result = spawnSync(process.execPath, [runtime, "--no-install"], {
+function runGate(dir, options = {}, executable = runtime) {
+  const result = spawnSync(process.execPath, [executable, "--no-install"], {
     cwd: dir,
     encoding: "utf8",
     env: {
@@ -65,6 +65,16 @@ test("passing commands produce a real pass; absent optional checks are never PAS
   assert.equal(result.report.checks.find((c) => c.name === "Oxfmt").status, "PASS");
   for (const name of ["Tests", "Product behavior", "React Doctor", "E2E", "Fallow complexity"])
     assert.equal(result.report.checks.find((c) => c.name === name).status, "NOT CONFIGURED");
+});
+
+test("a symlinked runner entrypoint executes checks and writes evidence", (t) => {
+  const dir = fixture(t);
+  const linked = join(dir, "node_modules/linked-gate.mjs");
+  symlinkSync(runtime, linked);
+  const result = runGate(dir, {}, linked);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(result.report.passed, true);
+  assert.equal(result.report.checks.find((c) => c.name === "Oxfmt").status, "PASS");
 });
 
 test("actual Oxfmt failure is preserved through JSON and Markdown reporting", (t) => {

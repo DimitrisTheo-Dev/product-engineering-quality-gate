@@ -360,7 +360,7 @@ export async function main(options = {}, settings = {}) {
   return { passed: !failed(results), checks: results };
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const options = JSON.parse(process.env.QG_OPTIONS ?? "{}");
   const report = await main(options, { install: !process.argv.includes("--no-install") });
   if (!report.passed) process.exitCode = 1;

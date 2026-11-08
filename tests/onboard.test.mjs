@@ -62,6 +62,23 @@ test("React checks require explicit opt-in and cannot be enabled on a Node packa
   assert.ok(adoptionPlan({ repo: dir, ref: sha, "react-doctor": true }).conflicts.length);
 });
 
+test("a symlinked CLI checkout still produces the immutable adoption plan", (t) => {
+  const dir = fixture(t);
+  const linked = join(dir, "linked-central-checkout");
+  symlinkSync(root, linked);
+  const before = snapshot(dir);
+  const result = spawnSync(
+    process.execPath,
+    [join(linked, "scripts/onboard.mjs"), "--repo", dir, "--ref", sha, "--dry-run"],
+    { encoding: "utf8" },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  const plan = JSON.parse(result.stdout);
+  assert.equal(plan.immutableRef, sha);
+  assert.ok(plan.changes.includes("package.json"));
+  assert.deepEqual(snapshot(dir), before);
+});
+
 test("script/workflow conflicts preserve user work", (t) => {
   const dir = fixture(t);
   const path = join(dir, "package.json");

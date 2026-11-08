@@ -3,11 +3,11 @@
 Release tags use semantic versions, starting with `v1.0.0`. Treat published version tags as permanent: never move or reuse one. Consumers should pin the full release commit SHA; tags are for discovery and readable release history. There is deliberately no moving `v1` alias in v1.
 
 ```sh
-git clone --branch v1.0.0 --depth 1 https://github.com/DimitrisTheo-Dev/product-engineering-quality-gate.git quality-gate-tools
+git clone --branch v1.0.1 --depth 1 https://github.com/DimitrisTheo-Dev/product-engineering-quality-gate.git quality-gate-tools
 git -C quality-gate-tools rev-parse HEAD
 ```
 
-That commit is the immutable reference the onboarding CLI writes into callers. Resolve annotated tags to their commit (`git rev-parse 'v1.0.0^{commit}'`) rather than copying the tag object's SHA. You can also inspect the release/commit on GitHub. Full SHAs pin code; repository policies/Actions allowlists can still affect execution.
+That commit is the immutable reference the onboarding CLI writes into callers. Resolve annotated tags to their commit (`git rev-parse 'v1.0.1^{commit}'`) rather than copying the tag object's SHA. You can also inspect the release/commit on GitHub. Full SHAs pin code; repository policies/Actions allowlists can still affect execution.
 
 ## Consumer upgrade
 
@@ -28,9 +28,9 @@ Commit with public-safe attribution, scan **all Git history** with `npm run scan
 After successful verification, create a new annotated tag and GitHub release at the exact reviewed commit. Record its SHA in the release notes. Example maintainer commands:
 
 ```sh
-git tag -a v1.0.0 -m 'product-engineering-quality-gate v1.0.0'
-git push origin v1.0.0
-gh release create v1.0.0 --verify-tag --title 'v1.0.0' --notes-file /path/to/reviewed-release-notes.md
+git tag -a v1.0.1 -m 'product-engineering-quality-gate v1.0.1'
+git push origin v1.0.1
+gh release create v1.0.1 --verify-tag --title 'v1.0.1' --notes-file /path/to/reviewed-release-notes.md
 ```
 
 Do not run those commands for an existing tag. Never force-push a release, automatically enroll consumers, or change organization policies as part of release publication.

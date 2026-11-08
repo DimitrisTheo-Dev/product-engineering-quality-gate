@@ -2,13 +2,17 @@
 
 Observed on 2026-11-08. Fixtures establish fixture contracts, not production behavior or provider reliability. The [repository is public](https://github.com/DimitrisTheo-Dev/product-engineering-quality-gate) by explicit owner authorization.
 
+## v1.0.1 correction
+
+A fresh public v1.0.0 clone under a symlinked filesystem path exposed an entrypoint comparison bug: the local CLI/runner could exit without running because Node canonicalizes module URLs. v1.0.1 resolves the invoked file before comparing it, adds two regression tests, and updates new-adoption guidance. The original v1.0.0 tag is retained unchanged. Patch-release notes record its exact CI and published-checkout verification.
+
 ## Local checkpoints
 
 | Check                                 | Actual result                                                                                                                                                                                                                                             |
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Oxfmt 0.77.0 / Oxlint 1.92.0          | PASS with local exact dependencies; actual formatting errors and lint warnings fail in tests.                                                                                                                                                             |
 | TypeScript 7.0.2 / build              | PASS; emitted build and generated workflow/source consistency checks.                                                                                                                                                                                     |
-| `npm test`                            | **25 passed**: real tool failures, missing prerequisites/scripts, tests cannot be disabled, deferred checks, version pins, traversal/symlink rejection, process-group timeout, adoption conflicts, skill installation, and workflow security contracts.   |
+| `npm test`                            | **27 passed**: real tool failures, missing prerequisites/scripts, tests cannot be disabled, deferred checks, version pins, traversal/symlink rejection, process-group timeout, adoption conflicts, skill installation, and workflow security contracts.   |
 | `npm run test:product`                | **5 passed**, explicitly synthetic Q&A contracts; no provider calls.                                                                                                                                                                                      |
 | Full local gate                       | PASS, including locked install with dependency hooks disabled, required checks, and `test:product`.                                                                                                                                                       |
 | `npm run test:adoption`               | PASS: isolated Node/TS and React/TS repositories; dry run writes nothing, source/existing CI preserved, repeat apply byte-idempotent, locked install and actual gate pass.                                                                                |

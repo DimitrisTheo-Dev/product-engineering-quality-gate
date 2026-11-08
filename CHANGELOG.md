@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.0.1
+
+- Fix onboarding and local gate entrypoints silently exiting when invoked through a symlinked checkout/script path. Resolve the invoked file before comparing it with Node's canonical module URL.
+- Add regression coverage for both symlinked entrypoints. v1.0.0 remains unchanged; use v1.0.1 for new adoptions.
+
 ## v1.0.0
 
 - Reusable, self-contained workflow_call gate for local pinned Oxfmt/Oxlint, existing typecheck/tests/build, and consumer behavior scripts.

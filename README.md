@@ -11,7 +11,7 @@ Consumers keep their package scripts and tool configuration. One small caller in
 Requires Node 24+, Git, and a target repository with `package.json`. Start on a reviewable branch. Existing typecheck/build scripts and a lockfile are required for a green gate; onboarding reports gaps without inventing successful checks.
 
 ```sh
-git clone --branch v1.0.0 --depth 1 https://github.com/DimitrisTheo-Dev/product-engineering-quality-gate.git quality-gate-tools
+git clone --branch v1.0.1 --depth 1 https://github.com/DimitrisTheo-Dev/product-engineering-quality-gate.git quality-gate-tools
 node quality-gate-tools/scripts/onboard.mjs --repo /path/to/your-repo --dry-run
 node quality-gate-tools/scripts/onboard.mjs --repo /path/to/your-repo --apply
 ```

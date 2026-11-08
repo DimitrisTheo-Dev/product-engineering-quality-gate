@@ -1,6 +1,6 @@
 # Adoption examples
 
-All `uses` examples below are templates: replace `RELEASE_SHA` with the exact commit from the [v1.0.0 release](https://github.com/DimitrisTheo-Dev/product-engineering-quality-gate/releases/tag/v1.0.0). The onboarding CLI does this automatically from a release checkout. Do not paste the placeholder literally.
+All `uses` examples below are templates: replace `RELEASE_SHA` with the exact commit from the [v1.0.1 release](https://github.com/DimitrisTheo-Dev/product-engineering-quality-gate/releases/tag/v1.0.1). The onboarding CLI does this automatically from a release checkout. Do not paste the placeholder literally.
 
 ## New React/TypeScript repository
 
