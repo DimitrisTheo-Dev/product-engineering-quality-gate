@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { gzipSync } from "node:zlib";
 import YAML from "yaml";
 import { defaults } from "../runtime/gate.mjs";
 
@@ -48,15 +49,42 @@ function requireSafeDelimiter(source, delimiter) {
 function script(source, delimiter, entrypoint) {
   const program = `${source}\n${entrypoint}`;
   requireSafeDelimiter(program, delimiter);
-  return `node --input-type=module <<'${delimiter}'\n${program}\n${delimiter}\n`;
+  const body = `node --input-type=module <<'${delimiter}'\n${program}\n${delimiter}\n`;
+  if (body.length > 21_000) throw new Error(`${delimiter} exceeds the workflow run limit.`);
+  return body;
+}
+
+function runnerScript(source, delimiter, exported, entrypoint) {
+  requireSafeDelimiter(source, delimiter);
+  const embedded = gzipSync(source)
+    .toString("base64")
+    .match(/.{1,120}/g)
+    ?.join("\n");
+  const loader = [
+    'import { gunzipSync } from "node:zlib";',
+    "const embedded = `" + embedded + "`;",
+    'const code = gunzipSync(Buffer.from(embedded, "base64"));',
+    "const { " +
+      exported +
+      ' } = await import("data:text/javascript;base64," + code.toString("base64"));',
+  ].join("\n");
+  return script(loader, delimiter, entrypoint);
 }
 
 const runner = readFileSync(resolve(root, "runtime/gate.mjs"), "utf8");
 const reportAssertion = readFileSync(resolve(root, "runtime/assert-report.mjs"), "utf8");
 const checkout = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
 const setupNode = "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1";
+const cacheRestore = "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25";
+const cacheSave = "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25";
 const upload = "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9";
-const versions = { [checkout]: "v7.0.1", [setupNode]: "v7.1.0", [upload]: "v7.0.2" };
+const versions = {
+  [checkout]: "v7.0.1",
+  [setupNode]: "v7.1.0",
+  [upload]: "v7.0.2",
+  [cacheRestore]: "v5.1.0",
+  [cacheSave]: "v5.1.0",
+};
 const workflow = {
   name: "Reusable product engineering quality gate",
   on: {
@@ -89,7 +117,7 @@ const workflow = {
           name: "Check out consumer",
           id: "checkout",
           uses: checkout,
-          with: { "persist-credentials": false, "fetch-depth": 1 },
+          with: { "persist-credentials": false, "fetch-depth": 2 },
         },
         {
           name: "Set up Node",
@@ -98,14 +126,41 @@ const workflow = {
           with: { "node-version": "${{ inputs.node-version }}", "package-manager-cache": false },
         },
         {
+          name: "Plan dependency download caching",
+          id: "plan",
+          shell: "bash",
+          run: runnerScript(
+            runner,
+            "QUALITY_GATE_CACHE_PLAN",
+            "publishCachePlan",
+            "await publishCachePlan();",
+          ),
+        },
+        {
+          name: "Restore dependency downloads",
+          id: "restore",
+          if: "${{ steps.plan.outputs.key != '' }}",
+          uses: cacheRestore,
+          with: { key: "${{ steps.plan.outputs.key }}", path: "${{ steps.plan.outputs.path }}" },
+        },
+        {
           name: "Install and run quality checks",
           id: "checks",
           shell: "bash",
-          env: { QG_OPTIONS: "${{ toJSON(inputs) }}" },
-          run: script(
+          env: {
+            QG_OPTIONS: "${{ toJSON(inputs) }}",
+            QG_PLANNED_VERSION: "${{ steps.plan.outputs.version }}",
+            QG_CHANGE_EVENT: "${{ github.event_name }}",
+            QG_CHANGE_BASE:
+              "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}",
+            QG_CHANGE_HEAD:
+              "${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}",
+          },
+          run: runnerScript(
             runner,
             "QUALITY_GATE_RUNTIME",
-            `const result = await main(JSON.parse(process.env.QG_OPTIONS), { version: ${JSON.stringify(version)} });\nif (!result.passed) process.exitCode = 1;`,
+            "main",
+            `const result = await main(JSON.parse(process.env.QG_OPTIONS), { version: ${JSON.stringify(version)}, cacheParent: process.env.RUNNER_TEMP, npmVersion: process.env.QG_PLANNED_VERSION });\nif (!result.passed) process.exitCode = 1;`,
           ),
         },
         {
@@ -128,6 +183,13 @@ const workflow = {
             "if-no-files-found": "error",
             "retention-days": 7,
           },
+        },
+        {
+          name: "Save dependency downloads on default-branch cache miss",
+          id: "save",
+          if: "${{ success() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.plan.outputs.key != '' && steps.restore.outputs.cache-hit != 'true' }}",
+          uses: cacheSave,
+          with: { key: "${{ steps.plan.outputs.key }}", path: "${{ steps.plan.outputs.path }}" },
         },
         {
           name: "Upload opted-in browser failure evidence",

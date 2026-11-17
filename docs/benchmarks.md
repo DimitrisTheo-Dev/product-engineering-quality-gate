@@ -8,7 +8,7 @@ Run on Node 24 with npm. Install the browser and its system prerequisites before
 
 ```sh
 npm ci --ignore-scripts --no-audit --no-fund
-./node_modules/.bin/playwright install --with-deps chromium
+./node_modules/.bin/playwright install --with-deps --only-shell chromium
 node scripts/bench.mjs
 ```
 
@@ -83,6 +83,111 @@ The medium fixture's median locked install fell from 7.28 s to 1.31 s with the w
 | Gate noop minus bare Node (Build)     | 109.72 (104.96–128.44) |
 | Gate noop (Smoke)                     | 160.30 (157.92–183.54) |
 | Gate noop minus bare Node (Smoke)     | 107.42 (103.10–128.71) |
+
+## v2 local comparison
+
+The instrumented v1 baseline and v2 ran five independent cold and warm pairs on the same Linux host with Node 24.22.1 and npm 11.9.0. Times below are seconds, except the launch overhead rows marked in milliseconds. GitHub cache transfer time is outside the local measurements.
+
+| Median                                           | v1 Node TS | v2 Node TS | v1 Vite React | v2 Vite React |
+| ------------------------------------------------ | ---------: | ---------: | ------------: | ------------: |
+| Cold locked install                              |       5.43 |       6.77 |          7.28 |          7.64 |
+| Warm locked install                              |       0.84 |       0.94 |          1.31 |          1.58 |
+| Cold gate                                        |       6.78 |       8.33 |         10.66 |         11.66 |
+| Warm gate                                        |       2.23 |       2.26 |          4.54 |          5.05 |
+| No-op overhead by scripted check, ms             |    113–121 |    119–159 |       107–114 |       108–208 |
+| Opt-in Node no-op overhead by scripted check, ms |          — |       3–14 |             — |      −0.2–4.2 |
+
+The v2 medium warm install was 4.8× faster than its cold install. The standalone cold run was slower than v1 in this sample. The registry timings varied, and v2 runs Oxfmt and Oxlint through package scripts and observes the actual npm version. Default launch overhead misses the 50 ms target. Preserving npm hook and environment behavior keeps npm as the default. Safe, opted-in Node scripts met the target in both fixtures. Negative paired deltas reflect measurement variation. [Node run semantics](https://nodejs.org/download/release/v24.22.2/docs/api/cli.html#--run).
+
+The warm medium docs-only run took 2.75 s and skipped the browser smoke with reason `no-matching-changes`. That single run used an actual Git comparison and the same warm download store.
+
+A paired medium-fixture probe on an existing locked install alternated five serial and five concurrent runs. Grouping Oxfmt, Oxlint, and Typecheck lowered median wall time from 3.69 s (3.61–3.98 s) to 3.25 s (3.15–3.32 s), about 12%. The browser, tests, and build were unchanged.
+
+### Node and TypeScript
+
+| Phase                                      |                       Cold |                      Warm |
+| ------------------------------------------ | -------------------------: | ------------------------: |
+| Gate wall time                             | 8332.25 (8243.90–11011.50) | 2261.51 (2148.93–2440.55) |
+| Runtime start                              |        50.92 (50.01–62.35) |       51.33 (46.20–56.40) |
+| Configuration (includes manager detection) |           1.08 (0.94–1.18) |          0.98 (0.92–1.14) |
+| Package-manager resolution                 |      105.72 (95.15–137.61) |      98.32 (88.70–124.49) |
+| Locked install                             |  6773.71 (6584.31–9449.53) |   942.83 (782.65–1012.97) |
+| Oxfmt                                      |     252.10 (214.49–332.55) |    202.79 (195.16–269.16) |
+| Oxlint                                     |     268.42 (202.97–361.46) |    205.43 (184.66–251.14) |
+| Typecheck                                  |     536.23 (461.80–613.30) |    461.96 (452.52–477.19) |
+| Tests                                      |     295.59 (281.81–389.07) |    277.14 (271.32–295.73) |
+| Build                                      |     522.53 (437.06–584.60) |    439.66 (412.50–468.47) |
+| Reporting                                  |           0.69 (0.63–0.76) |          0.72 (0.65–0.82) |
+
+| Launch probe                                 |               Duration |
+| -------------------------------------------- | ---------------------: |
+| Bare Node                                    |   54.70 (51.02–100.97) |
+| npm run noop                                 | 169.12 (155.28–178.15) |
+| node --run noop                              |   59.96 (54.88–150.61) |
+| Gate noop (Typecheck)                        | 210.32 (199.56–292.85) |
+| Gate noop minus bare Node (Typecheck)        | 159.29 (103.48–237.42) |
+| Gate noop (Tests)                            | 173.33 (162.27–185.84) |
+| Gate noop minus bare Node (Tests)            |  119.07 (61.30–130.41) |
+| Gate noop (Build)                            | 174.02 (159.04–183.59) |
+| Gate noop minus bare Node (Build)            |  122.68 (58.07–128.16) |
+| Opt-in Node noop (Typecheck)                 |    68.48 (63.31–85.89) |
+| Opt-in Node noop minus bare Node (Typecheck) |   13.78 (-37.33–30.47) |
+| Opt-in Node noop (Tests)                     |    56.36 (54.00–72.61) |
+| Opt-in Node noop minus bare Node (Tests)     |    2.66 (-44.61–17.90) |
+| Opt-in Node noop (Build)                     |    57.25 (54.61–72.11) |
+| Opt-in Node noop minus bare Node (Build)     |    2.55 (-46.36–21.09) |
+
+### Vite, React, Vitest and Playwright
+
+| Phase                                      |                         Cold |                      Warm |
+| ------------------------------------------ | ---------------------------: | ------------------------: |
+| Gate wall time                             | 11658.03 (10891.70–13830.88) | 5054.96 (4674.69–5411.33) |
+| Runtime start                              |          49.61 (46.98–61.25) |      49.75 (48.27–113.49) |
+| Configuration (includes manager detection) |             1.07 (0.99–1.29) |          1.01 (1.00–2.24) |
+| Package-manager resolution                 |        100.34 (90.05–231.33) |    109.25 (102.70–206.89) |
+| Locked install                             |   7636.36 (7355.30–10199.28) | 1576.88 (1394.64–1842.77) |
+| Oxfmt                                      |       231.15 (215.87–261.07) |    228.60 (209.44–358.75) |
+| Oxlint                                     |       232.05 (197.00–238.82) |    239.45 (187.04–322.56) |
+| Typecheck                                  |       383.99 (347.66–449.52) |    367.99 (349.07–460.72) |
+| Tests                                      |       621.39 (579.43–646.02) |    581.76 (571.98–703.80) |
+| Build                                      |       460.26 (417.66–539.90) |    424.16 (414.88–440.81) |
+| Smoke                                      |    1927.34 (1687.21–2770.48) | 1818.48 (1552.64–1864.86) |
+| Reporting                                  |             0.86 (0.68–4.50) |          0.93 (0.60–1.07) |
+
+| Launch probe                                 |               Duration |
+| -------------------------------------------- | ---------------------: |
+| Bare Node                                    |    56.58 (54.08–93.00) |
+| npm run noop                                 | 179.37 (165.53–273.04) |
+| node --run noop                              |    61.49 (54.38–71.72) |
+| Gate noop (Typecheck)                        | 264.20 (191.56–367.67) |
+| Gate noop minus bare Node (Typecheck)        |  207.63 (98.56–312.96) |
+| Gate noop (Tests)                            | 185.84 (172.23–261.83) |
+| Gate noop minus bare Node (Tests)            |  129.76 (79.23–207.12) |
+| Gate noop (Build)                            | 172.90 (170.38–180.39) |
+| Gate noop minus bare Node (Build)            |  116.28 (83.61–126.31) |
+| Gate noop (Smoke)                            | 171.87 (164.43–290.56) |
+| Gate noop minus bare Node (Smoke)            |  107.85 (80.86–235.85) |
+| Opt-in Node noop (Typecheck)                 |    70.63 (53.82–85.01) |
+| Opt-in Node noop minus bare Node (Typecheck) |    4.19 (-39.18–19.68) |
+| Opt-in Node noop (Tests)                     |    62.34 (54.50–66.60) |
+| Opt-in Node noop minus bare Node (Tests)     |   -0.20 (-30.66–10.40) |
+| Opt-in Node noop (Build)                     |    58.24 (55.29–94.00) |
+| Opt-in Node noop minus bare Node (Build)     |    1.00 (-24.58–18.77) |
+| Opt-in Node noop (Smoke)                     |   57.85 (53.09–127.56) |
+| Opt-in Node noop minus bare Node (Smoke)     |    1.27 (-28.51–34.56) |
+
+Docs-only warm run: 2751.77 ms; Smoke SKIPPED (no-matching-changes).
+
+## Browser setup study
+
+Playwright 1.65.0 installed Chrome for Testing 158.0.8127.18 from a loopback mirror of the official archives on the same Linux host. One fresh install per option used the Playwright CLI. An independent zstd archive and extraction estimated the local work needed for a browser-directory cache keyed by that Playwright version. The measurements exclude remote download, GitHub cache transfer, and OS dependencies.
+
+| Chromium setup                   | Fresh install | Compressed directory | Local extraction |
+| -------------------------------- | ------------: | -------------------: | ---------------: |
+| Full Chromium and headless shell |        6.96 s |             306.0 MB |           1.03 s |
+| Headless shell only              |        3.09 s |             119.1 MB |           0.46 s |
+
+The benchmark workflow uses the headless shell because its smoke uses the default headless browser. The Playwright onboarding add-on keeps full Chromium for consumers with headed or channel-specific tests. The reusable workflow does not save browser caches. Hosted measurements of browser archive transfer are still pending. [Playwright browser installation](https://playwright.dev/docs/browsers#chromium-headless-shell).
 
 ## Implementation plan for v2
 

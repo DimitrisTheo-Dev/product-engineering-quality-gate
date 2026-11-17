@@ -58,664 +58,257 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 1
+          fetch-depth: 2
       - name: Set up Node
         id: node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ inputs.node-version }}
           package-manager-cache: false
+      - name: Plan dependency download caching
+        id: plan
+        shell: bash
+        run: |
+          node --input-type=module <<'QUALITY_GATE_CACHE_PLAN'
+          import { gunzipSync } from "node:zlib";
+          const embedded = `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`;
+          const code = gunzipSync(Buffer.from(embedded, "base64"));
+          const { publishCachePlan } = await import("data:text/javascript;base64," + code.toString("base64"));
+          await publishCachePlan();
+          QUALITY_GATE_CACHE_PLAN
+      - name: Restore dependency downloads
+        id: restore
+        if: ${{ steps.plan.outputs.key != '' }}
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          key: ${{ steps.plan.outputs.key }}
+          path: ${{ steps.plan.outputs.path }}
       - name: Install and run quality checks
         id: checks
         shell: bash
         env:
           QG_OPTIONS: ${{ toJSON(inputs) }}
+          QG_PLANNED_VERSION: ${{ steps.plan.outputs.version }}
+          QG_CHANGE_EVENT: ${{ github.event_name }}
+          QG_CHANGE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          QG_CHANGE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         run: |
           node --input-type=module <<'QUALITY_GATE_RUNTIME'
-          import { spawn } from "node:child_process";
-          import {
-            closeSync,
-            constants,
-            openSync,
-            existsSync,
-            lstatSync,
-            mkdirSync,
-            readFileSync,
-            realpathSync,
-            writeFileSync,
-            appendFileSync,
-          } from "node:fs";
-          import { homedir } from "node:os";
-          import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-          import { performance } from "node:perf_hooks";
-          import { fileURLToPath } from "node:url";
-
-          export const defaults = {
-            "working-directory": ".",
-            config: "quality-gate.config.json",
-            deep: false,
-            "check-timeout-seconds": 300,
-          };
-
-          export const exactVersion = /^\d+\.\d+\.\d+(?:-[\da-zA-Z.-]+)?$/;
-          export const scriptName = /^[a-zA-Z0-9][a-zA-Z0-9:._-]*$/;
-          export const requiredKinds = ["typecheck", "test", "build"];
-          const packageName = /^(?:@[a-z0-9._-]+\/)?[a-z0-9][a-z0-9._-]*$/;
-          const startupMs = performance.now();
-          const elapsed = (start) => Math.round((performance.now() - start) * 1000) / 1000;
-          const seconds = (ms) => Math.round(ms / 100) / 10;
-          const readJson = (path) => JSON.parse(readFileSync(path, "utf8"));
-          const manifest = (dir) => readJson(join(dir, "package.json"));
-          const message = (error) => (error instanceof Error ? error.message : String(error));
-          const locks = {
-            "package-lock.json": "npm",
-            "npm-shrinkwrap.json": "npm",
-            "pnpm-lock.yaml": "pnpm",
-            "yarn.lock": "yarn",
-            "bun.lock": "bun",
-            "bun.lockb": "bun",
-          };
-
-          export function inside(root, target) {
-            const path = relative(root, target);
-            return path === "" || (!isAbsolute(path) && path !== ".." && !path.startsWith(`..${sep}`));
-          }
-
-          export function detectManager(root, pkg = manifest(root), { allowMissing = false } = {}) {
-            const found = Object.keys(locks).filter((file) => existsSync(join(root, file)));
-            if (found.length > 1 || (!allowMissing && !found.length))
-              throw new Error(
-                "Keep exactly one supported lockfile at the install root; remove conflicting lockfiles.",
-              );
-            const declared =
-              typeof pkg.packageManager === "string" &&
-              pkg.packageManager.match(
-                /^(npm|pnpm|yarn|bun)@(\d+\.\d+\.\d+(?:-[\da-zA-Z.-]+)?)(?:\+(sha(?:224|256|384|512)\.[a-f\d]+))?$/,
-              );
-            if (pkg.packageManager !== undefined && !declared)
-              throw new Error("Pin packageManager to name@x.y.z, optionally with a Corepack integrity hash.");
-            const name = locks[found[0]] ?? (declared ? declared[1] : "npm");
-            if (declared && declared[1] !== name) throw new Error("packageManager must match the lockfile.");
-            if (name !== "npm" && !declared) throw new Error(`Pin packageManager: ${name}@x.y.z.`);
-            const version = declared ? declared[2] : undefined;
-            const hash = declared ? declared[3] : undefined;
-            if (hash && hash.split(".")[1].length !== Number(hash.split(".")[0].slice(3)) / 4)
-              throw new Error("packageManager integrity hash has the wrong length.");
-            if (name === "bun") throw new Error("Bun requires the v2 Bun adapter.");
-            if (name === "yarn" && version && !version.startsWith("1.") && !hash && version !== "4.18.1")
-              throw new Error("Add a +sha224 or +sha512 integrity suffix to the Yarn packageManager pin.");
-            if (
-              name === "yarn" &&
-              (existsSync(join(root, ".pnp.cjs")) ||
-                (!version?.startsWith("1.") &&
-                  (!existsSync(join(root, ".yarnrc.yml")) ||
-                    !/^\s*nodeLinker:\s*node-modules\s*(?:#.*)?$/m.test(
-                      readFileSync(join(root, ".yarnrc.yml"), "utf8"),
-                    ))))
-            )
-              throw new Error("Yarn PnP is unsupported. Set nodeLinker: node-modules in .yarnrc.yml.");
-            const lockfile = found[0] ?? Object.keys(locks).find((file) => locks[file] === name);
-            if (!lockfile) throw new Error("Cannot select a lockfile.");
-            return { name, version, hash, lockfile };
-          }
-
-          function keys(value, allowed, path) {
-            if (!value || typeof value !== "object" || Array.isArray(value))
-              throw new Error(`${path} must be an object.`);
-            for (const key of Object.keys(value))
-              if (!allowed.includes(key)) throw new Error(`Unknown option ${path}.${key}.`);
-          }
-
-          function list(value, valid, path) {
-            if (!Array.isArray(value) || !value.every(valid) || new Set(value).size !== value.length)
-              throw new Error(`${path} must be an array of unique, valid values.`);
-            return value;
-          }
-
-          export function validateConfig(config) {
-            keys(config, ["setup", "tools", "checks", "policy"], "config");
-            const setup = list(
-              config.setup === undefined ? [] : config.setup,
-              (s) => typeof s === "string" && scriptName.test(s),
-              "config.setup (package script names)",
-            );
-            const tools = list(
-              config.tools === undefined ? [] : config.tools,
-              (s) => typeof s === "string" && packageName.test(s),
-              "config.tools (package names)",
-            );
-            if (!Array.isArray(config.checks)) throw new Error("config.checks must be an array.");
-            const names = new Set();
-            for (const [index, check] of config.checks.entries()) {
-              const path = `config.checks[${index}]`;
-              keys(check, ["name", "kind", "script", "concurrent", "tier", "paths"], path);
-              if (typeof check.name !== "string" || !check.name.trim() || oneLine(check.name) !== check.name)
-                throw new Error(`${path}.name must be a nonempty single-line label.`);
-              if (names.has(check.name)) throw new Error(`Duplicate check name ${check.name}.`);
-              names.add(check.name);
-              if (typeof check.kind !== "string" || !/^[a-z][a-z0-9-]*$/.test(check.kind))
-                throw new Error(`${path}.kind must be a lowercase identifier.`);
-              if (typeof check.script !== "string" || !scriptName.test(check.script))
-                throw new Error(`${path}.script must be a package script name.`);
-              if (check.concurrent !== undefined && typeof check.concurrent !== "boolean")
-                throw new Error(`${path}.concurrent must be a boolean.`);
-              if (check.tier !== undefined && check.tier !== "deep")
-                throw new Error(`${path}.tier must be deep when specified.`);
-              if (check.paths !== undefined)
-                list(
-                  check.paths,
-                  (p) =>
-                    typeof p === "string" &&
-                    /^[\w.*/?{}[\],+@ -]+$/.test(p) &&
-                    !p.startsWith("/") &&
-                    !p.split("/").includes(".."),
-                  `${path}.paths (repository-relative globs)`,
-                );
-            }
-            const policy = config.policy === undefined ? {} : config.policy;
-            keys(policy, ["waive"], "config.policy");
-            const waive = list(
-              policy.waive === undefined ? [] : policy.waive,
-              (kind) => requiredKinds.includes(kind),
-              "config.policy.waive (typecheck, test or build)",
-            );
-            for (const kind of requiredKinds) {
-              const configured = config.checks.some((check) => check.kind === kind && check.tier !== "deep");
-              if (configured === waive.includes(kind))
-                throw new Error(
-                  configured
-                    ? `Remove redundant waiver for ${kind}.`
-                    : `Add a fast ${kind} check or waive ${kind} explicitly.`,
-                );
-            }
-            return { setup, tools, checks: config.checks, waive };
-          }
-
-          function packagePath(parent, value, label) {
-            if (typeof value !== "string" || !value || isAbsolute(value))
-              throw new Error(`${label} must be a relative path.`);
-            const path = resolve(parent, value);
-            if (!inside(parent, path)) throw new Error(`${label} must stay inside its directory.`);
-            const real = realpathSync(path);
-            if (!inside(parent, real)) throw new Error(`${label} symlink leaves its directory.`);
-            return real;
-          }
-
-          function pinnedTools(root, cwd, names) {
-            const tools = {};
-            for (const name of names) {
-              let installed;
-              let declared;
-              for (let dir = cwd; inside(root, dir); dir = dirname(dir)) {
-                const path = join(dir, "node_modules", name, "package.json");
-                if (installed === undefined && existsSync(path)) {
-                  if (!inside(root, realpathSync(path)))
-                    throw new Error(`Installed ${name} leaves the checkout.`);
-                  installed = readJson(path).version;
-                }
-                if (declared === undefined && existsSync(join(dir, "package.json"))) {
-                  const pkg = manifest(dir);
-                  declared = pkg.devDependencies?.[name] ?? pkg.dependencies?.[name];
-                }
-                if (dir === root) break;
-              }
-              if (typeof declared !== "string" || !exactVersion.test(declared))
-                throw new Error(
-                  `Pin ${name} to an exact dependency version (found ${declared ?? "no declaration"}).`,
-                );
-              if (declared !== installed)
-                throw new Error(
-                  `Expected installed ${name} ${declared}, found ${installed ?? "nothing"}. Check the lockfile.`,
-                );
-              Object.defineProperty(tools, name, { value: installed, enumerable: true });
-            }
-            return tools;
-          }
-
-          function childEnvironment(overrides) {
-            const env = { ...process.env, ...overrides, CI: "true", DO_NOT_TRACK: "1" };
-            for (const key of [
-              "GITHUB_ENV",
-              "GITHUB_PATH",
-              "GITHUB_OUTPUT",
-              "GITHUB_STATE",
-              "GITHUB_STEP_SUMMARY",
-              "QG_OPTIONS",
-            ])
-              delete env[key];
-            return env;
-          }
-
-          export function run(
-            command,
-            args,
-            cwd,
-            {
-              timeout = 300,
-              signal = /** @type {AbortSignal | undefined} */ (undefined),
-              env = {},
-              capture = false,
-              grouped = false,
-              label = "",
-            } = {},
-          ) {
-            if (signal?.aborted) throw new Error("Gate terminated before the command started.");
-            if (!capture && !grouped) console.log(`\n$ ${command} ${args.join(" ")}`);
-            const child = spawn(command, args, {
-              cwd,
-              env: childEnvironment(env),
-              stdio: capture || grouped ? ["ignore", "pipe", "pipe"] : "inherit",
-              detached: process.platform !== "win32",
-            });
-            let output = "";
-            let stdout = "";
-            let truncated = false;
-            const collect = (chunk) => {
-              if (output.length < 2_000_000) output += String(chunk);
-              else truncated = true;
-            };
-            child.stdout?.on("data", (chunk) => {
-              collect(chunk);
-              if (capture && stdout.length < 2_000_000) stdout += String(chunk);
-            });
-            child.stderr?.on("data", collect);
-            return new Promise((accept, reject) => {
-              let stopping = "";
-              /** @type {NodeJS.Timeout | undefined} */
-              let grace;
-              let stopped;
-              const send = (sig) => {
-                try {
-                  if (process.platform !== "win32" && child.pid) process.kill(-child.pid, sig);
-                  else child.kill(sig);
-                } catch (error) {
-                  if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) throw error;
-                }
-              };
-              const stop = (reason) => {
-                if (stopping) return;
-                stopping = reason;
-                send("SIGTERM");
-                stopped = new Promise((done) => {
-                  grace = setTimeout(() => {
-                    send("SIGKILL");
-                    done(undefined);
-                  }, 1000);
-                });
-              };
-              const abort = () => stop("Gate terminated; the process group was stopped.");
-              const timer = setTimeout(
-                () => stop(`Command timeout after ${timeout}s; the process group was stopped.`),
-                timeout * 1000,
-              );
-              signal?.addEventListener("abort", abort, { once: true });
-              child.once("error", (error) => {
-                clearTimeout(timer);
-                signal?.removeEventListener("abort", abort);
-                reject(new Error(`${message(error)}. Check executable installation.`));
-              });
-              child.once("close", async (code, sig) => {
-                clearTimeout(timer);
-                signal?.removeEventListener("abort", abort);
-                if (grace) await stopped;
-                if (grouped) {
-                  console.log(`::group::${oneLine(label)}\n$ ${command} ${args.join(" ")}`);
-                  process.stdout.write(output + (truncated ? "\n[check log truncated]\n" : "\n"));
-                  console.log("::endgroup::");
-                }
-                if (stopping) reject(new Error(stopping));
-                else if (code !== 0)
-                  reject(
-                    new Error(
-                      `Exit ${code ?? sig}. Fix the diagnostics and rerun.${capture ? "\n" + output.trim() : ""}`,
-                    ),
-                  );
-                else accept(stdout.trim());
-              });
-            });
-          }
-
-          /** @typedef {ReturnType<typeof detectManager>} Manager */
-
-          export function installArgs(/** @type {Manager} */ manager, update = false) {
-            if (manager.name === "npm")
-              return [
-                ...(update ? ["install", "--package-lock-only"] : ["ci"]),
-                "--ignore-scripts",
-                "--no-audit",
-                "--no-fund",
-              ];
-            if (manager.name === "pnpm")
-              return [
-                "install",
-                "--ignore-scripts",
-                ...(update
-                  ? ["--lockfile-only", "--no-frozen-lockfile", "--config.minimumReleaseAgeStrict=true"]
-                  : ["--frozen-lockfile"]),
-                "--ignore-pnpmfile",
-              ];
-            if (manager.version?.startsWith("1."))
-              return [
-                "install",
-                "--ignore-scripts",
-                "--non-interactive",
-                ...(update ? [] : ["--frozen-lockfile"]),
-              ];
-            return ["install", update ? "--no-immutable" : "--immutable", "--mode=skip-build"];
-          }
-
-          export async function resolveManager(
-            /** @type {Manager} */ manager,
-            signal = /** @type {AbortSignal | undefined} */ (undefined),
-          ) {
-            const trusted = dirname(process.execPath);
-            const env =
-              manager.name === "yarn"
-                ? { YARN_IGNORE_PATH: "1" }
-                : manager.name === "pnpm"
-                  ? { npm_config_manage_package_manager_versions: "false" }
-                  : {};
-            if (!manager.version) {
-              const version = await run("npm", ["--version"], trusted, { capture: true, signal });
-              if (!exactVersion.test(version)) throw new Error("Cannot determine the bundled npm version.");
-              return { command: "npm", prefix: [], version, env };
-            }
-            const { name, version } = manager;
-            const hash =
-              manager.hash ??
-              (name === "yarn" && version === "4.18.1"
-                ? "sha512.b2e1e7524f654f2749d32b4ebcb4622473cb5bcbc485df2007e12a154e50162a4d795526768bc5f5b8f81717bfd79deb2472813d86fb5ae2eb551fa9c872b08f"
-                : undefined);
-            const home =
-              process.env.GITHUB_ACTIONS === "true" && process.env.RUNNER_TEMP
-                ? join(process.env.RUNNER_TEMP, "quality-gate-corepack")
-                : (process.env.COREPACK_HOME ??
-                  join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "node/corepack"));
-            await run(
-              "corepack",
-              ["install", "--global", `${name}@${version}${hash ? "+" + hash : ""}`],
-              trusted,
-              {
-                capture: true,
-                signal,
-                timeout: 120,
-                env: {
-                  COREPACK_HOME: home,
-                  COREPACK_ENV_FILE: "0",
-                  COREPACK_DEFAULT_TO_LATEST: "0",
-                  COREPACK_ENABLE_DOWNLOAD_PROMPT: "0",
-                  COREPACK_ON_UNVERIFIED_DOWNLOAD: "error",
-                },
-              },
-            );
-            const dir = realpathSync(join(home, "v1", name, version));
-            const metadata = readJson(join(dir, ".corepack"));
-            if (hash && metadata.hash !== hash)
-              throw new Error(
-                `Cached ${name}@${version} does not match its integrity pin. Clear the Corepack cache for this version.`,
-              );
-            const bin = packagePath(
-              dir,
-              Array.isArray(metadata.bin) ? `${name}.js` : metadata.bin[name],
-              "Package manager entrypoint",
-            );
-            return { command: process.execPath, prefix: [bin], version, env };
-          }
-
-          export const failed = (rows) => rows.some((row) => row.status === "FAIL");
-
-          function oneLine(value) {
-            return Array.from(String(value), (char) => {
-              const code = char.charCodeAt(0);
-              return code < 32 || code === 127 ? " " : char;
-            }).join("");
-          }
-          function codeCell(value) {
-            const text = oneLine(value).replaceAll("|", "\\|");
-            const length = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length)) + 1;
-            const fence = "`".repeat(length);
-            return `${fence} ${text || " "} ${fence}`;
-          }
-
-          export function markdown(results) {
-            return [
-              "## Product engineering quality gate",
-              "",
-              "| Check | Status | Evidence |",
-              "| --- | --- | --- |",
-              ...results.map(
-                (row) =>
-                  `| ${codeCell(row.name)} | **${row.status}** | ${codeCell(row.detail)}${row.seconds === undefined ? "" : ` (${row.seconds}s)`} |`,
-              ),
-              "",
-            ].join("\n");
-          }
-
-          function annotate(row) {
-            if (process.env.GITHUB_ACTIONS !== "true" || row.status !== "FAIL") return;
-            const text = `${row.name}. ${row.detail}`
-              .replaceAll("%", "%25")
-              .replaceAll("\r", "%0D")
-              .replaceAll("\n", "%0A");
-            console.error(`::error::${text}`);
-          }
-
-          function writeReport(path, contents) {
-            const fd = openSync(
-              path,
-              constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW,
-              0o644,
-            );
-            try {
-              writeFileSync(fd, contents);
-            } finally {
-              closeSync(fd);
-            }
-          }
-
-          export async function main(options = {}, settings = {}) {
-            const started = performance.now();
-            const o = { ...defaults, ...options };
-            const root = realpathSync(settings.root ?? process.env.GITHUB_WORKSPACE ?? process.cwd());
-            const timings = {
-              startupMs: Math.round(startupMs * 1000) / 1000,
-              configurationMs: 0,
-              managerResolutionMs: /** @type {number | null} */ (null),
-              installMs: /** @type {number | null} */ (null),
-              checks: /** @type {{name: string, ms: number}[]} */ ([]),
-              reportingMs: 0,
-            };
-            /** @type {{name: string, status: string, detail: string, seconds?: number, script?: string, body?: string, reason?: string}[]} */
-            const results = [];
-            const controller = new AbortController();
-            const terminate = () => controller.abort();
-            process.on("SIGTERM", terminate);
-            process.on("SIGINT", terminate);
-            let config;
-            let tools = {};
-            let managerEvidence;
-            let phase = "Configuration";
-            try {
-              const timeout = Number(o["check-timeout-seconds"]);
-              if (!Number.isInteger(timeout) || timeout < 1 || timeout > 1200)
-                throw new Error("check-timeout-seconds must be 1..1200.");
-              const cwd = packagePath(root, o["working-directory"], "working-directory");
-              config = validateConfig(readJson(packagePath(cwd, o.config, "config")));
-              const selected = detectManager(root);
-              if (!inside(root, realpathSync(join(root, selected.lockfile))))
-                throw new Error("The lockfile symlink leaves the checkout.");
-              timings.configurationMs = elapsed(started);
-              phase = "Package manager";
-              const resolveStarted = performance.now();
-              let manager;
-              try {
-                manager = await resolveManager(selected, controller.signal);
-              } finally {
-                timings.managerResolutionMs = elapsed(resolveStarted);
-              }
-              managerEvidence = {
-                name: selected.name,
-                version: manager.version,
-                lockfile: selected.lockfile,
-              };
-              if (settings.install !== false) {
-                phase = "Locked dependency installation";
-                const installStarted = performance.now();
-                try {
-                  await run(manager.command, [...manager.prefix, ...installArgs(selected)], root, {
-                    timeout: 600,
-                    signal: controller.signal,
-                    env: manager.env,
-                  });
-                  results.push({
-                    name: phase,
-                    status: "PASS",
-                    detail: `${selected.lockfile}; lifecycle scripts disabled`,
-                    seconds: seconds(elapsed(installStarted)),
-                  });
-                } finally {
-                  timings.installMs = elapsed(installStarted);
-                }
-              }
-              phase = "Installed tools";
-              tools = pinnedTools(root, cwd, config.tools);
-              const execute = async (name, script, grouped = false) => {
-                const start = performance.now();
-                const row = {
-                  name,
-                  script,
-                  status: "FAIL",
-                  detail: "",
-                  body: /** @type {string | undefined} */ (undefined),
-                  seconds: 0,
-                };
-                try {
-                  const scripts = manifest(cwd).scripts;
-                  if (
-                    !scripts ||
-                    !Object.hasOwn(scripts, script) ||
-                    typeof scripts[script] !== "string" ||
-                    !scripts[script].trim()
-                  )
-                    throw new Error(`Missing package script '${script}'. Add it to package.json.`);
-                  row.body = scripts[script];
-                  await run(manager.command, [...manager.prefix, "run", script], cwd, {
-                    timeout,
-                    signal: controller.signal,
-                    env: manager.env,
-                    grouped,
-                    label: name,
-                  });
-                  row.status = "PASS";
-                  row.detail = `Package script ${script} completed.`;
-                } catch (error) {
-                  row.detail = message(error);
-                  console.error(`${oneLine(name)}: ${row.detail}`);
-                } finally {
-                  const ms = elapsed(start);
-                  row.seconds = seconds(ms);
-                  timings.checks.push({ name, ms });
-                }
-                return row;
-              };
-              for (const script of config.setup) {
-                const row = await execute(`Setup ${script}`, script);
-                results.push(row);
-                if (row.status === "FAIL") break;
-              }
-              for (const kind of config.waive)
-                results.push({
-                  name: `Policy waiver (${kind})`,
-                  status: "SKIPPED",
-                  reason: "waived",
-                  detail: `${kind} was explicitly waived.`,
-                });
-              const prerequisiteFailed = failed(results);
-              for (const check of config.checks) {
-                if (prerequisiteFailed)
-                  results.push({
-                    name: check.name,
-                    status: "SKIPPED",
-                    reason: "prerequisite-failed",
-                    detail: "Setup failed.",
-                  });
-                else if (check.tier === "deep" && o.deep !== true)
-                  results.push({
-                    name: check.name,
-                    status: "SKIPPED",
-                    reason: "deep-tier",
-                    detail: "Enable deep to run this check.",
-                  });
-                else results.push(await execute(check.name, check.script));
-              }
-            } catch (error) {
-              if (phase === "Configuration") timings.configurationMs = elapsed(started);
-              const detail = message(error);
-              console.error(detail);
-              const ms =
-                phase === "Locked dependency installation"
-                  ? timings.installMs
-                  : phase === "Package manager"
-                    ? timings.managerResolutionMs
-                    : timings.configurationMs;
-              results.push({
-                name: phase,
-                status: "FAIL",
-                detail,
-                seconds: ms === null ? undefined : seconds(ms),
-              });
-              for (const check of config?.checks ?? [])
-                results.push({
-                  name: check.name,
-                  status: "SKIPPED",
-                  reason: "prerequisite-failed",
-                  detail: `${phase} failed.`,
-                });
-            } finally {
-              process.removeListener("SIGTERM", terminate);
-              process.removeListener("SIGINT", terminate);
-            }
-            const reportingStarted = performance.now();
-            const result = {
-              schemaVersion: 2,
-              version: settings.version,
-              passed: !failed(results),
-              manager: managerEvidence,
-              tools,
-              checks: results,
-              timings,
-            };
-            const output = join(root, ".quality-gate");
-            mkdirSync(output, { recursive: true });
-            if (lstatSync(output).isSymbolicLink())
-              throw new Error("Refusing to write reports through a symlink.");
-            try {
-              const summary = markdown(results);
-              writeReport(join(output, "summary.md"), summary);
-              if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
-              for (const row of results) annotate(row);
-              console.log(summary);
-            } finally {
-              timings.reportingMs = elapsed(reportingStarted);
-              writeReport(join(output, "report.json"), JSON.stringify(result, null, 2) + "\n");
-            }
-            return result;
-          }
-
-          if (
-            process.argv[1] &&
-            process.argv[1] !== "-" &&
-            realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)
-          ) {
-            const { version } = readJson(new URL("../package.json", import.meta.url));
-            const report = await main(JSON.parse(process.env.QG_OPTIONS ?? "{}"), {
-              install: !process.argv.includes("--no-install"),
-              version,
-            });
-            if (!report.passed) process.exitCode = 1;
-          }
-
-          const result = await main(JSON.parse(process.env.QG_OPTIONS), { version: "2.0.0" });
+          import { gunzipSync } from "node:zlib";
+          const embedded = `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`;
+          const code = gunzipSync(Buffer.from(embedded, "base64"));
+          const { main } = await import("data:text/javascript;base64," + code.toString("base64"));
+          const result = await main(JSON.parse(process.env.QG_OPTIONS), { version: "2.0.0", cacheParent: process.env.RUNNER_TEMP, npmVersion: process.env.QG_PLANNED_VERSION });
           if (!result.passed) process.exitCode = 1;
           QUALITY_GATE_RUNTIME
       - name: Verify the gate report and step outcome
@@ -777,6 +370,13 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
+      - name: Save dependency downloads on default-branch cache miss
+        id: save
+        if: ${{ success() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.plan.outputs.key != '' && steps.restore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          key: ${{ steps.plan.outputs.key }}
+          path: ${{ steps.plan.outputs.path }}
       - name: Upload opted-in browser failure evidence
         if: ${{ failure() && inputs.browser-evidence }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

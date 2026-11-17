@@ -14,13 +14,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
+import { gunzipSync } from "node:zlib";
 
 const root = new URL("../", import.meta.url);
 function workflow(name) {
   return YAML.parse(readFileSync(new URL(`.github/workflows/${name}.yml`, root), "utf8"));
 }
 
-test("the PR workflow requires no secrets, persisted credentials, or caches", () => {
+test("the PR workflow keeps read-only permissions and pins actions", () => {
   const gate = workflow("quality-gate");
   assert.deepEqual(gate.permissions, { contents: "read" });
   assert.equal(gate.on.workflow_call.secrets, undefined);
@@ -35,7 +36,7 @@ test("the PR workflow requires no secrets, persisted credentials, or caches", ()
   for (const step of gate.jobs.quality.steps) {
     if (step.uses) assert.match(step.uses, /@[a-f0-9]{40}$/);
     assert.notEqual(step["continue-on-error"], true);
-    assert.ok(!step.uses?.startsWith("actions/cache"));
+    if (step.run) assert.ok(step.run.length <= 21_000);
   }
   assert.equal(
     gate.jobs.quality.steps.find((step) => step.id === "checkout").with["persist-credentials"],
@@ -46,7 +47,11 @@ test("the PR workflow requires no secrets, persisted credentials, or caches", ()
 test("checked-in workflow executes the exact tested runtime", () => {
   const run = workflow("quality-gate").jobs.quality.steps.find((step) => step.id === "checks").run;
   const runtime = readFileSync(new URL("runtime/gate.mjs", root), "utf8");
-  assert.ok(run.includes(runtime));
+  const plan = workflow("quality-gate").jobs.quality.steps.find((step) => step.id === "plan");
+  for (const script of [run, plan.run]) {
+    const embedded = script.match(/const embedded = `([A-Za-z0-9+/=\n]+)`;/)[1];
+    assert.equal(gunzipSync(Buffer.from(embedded, "base64")).toString("utf8"), runtime);
+  }
   assert.match(run, /if \(!result.passed\) process.exitCode = 1/);
   assert.match(run, /<<'QUALITY_GATE_RUNTIME'/);
   const steps = workflow("quality-gate").jobs.quality.steps;
@@ -96,4 +101,21 @@ test("generator refuses a delimiter that occurs on its own embedded line", (t) =
   });
   assert.notEqual(run.status, 0);
   assert.match(run.stderr, /Embedded source contains the heredoc delimiter QUALITY_GATE_RUNTIME/);
+});
+
+test("cache restores exact download stores and saves only after a default-branch push miss", () => {
+  const steps = workflow("quality-gate").jobs.quality.steps;
+  const [plan, restore, checks, save] = ["plan", "restore", "checks", "save"].map((id) =>
+    steps.find((step) => step.id === id),
+  );
+  assert.ok(steps.indexOf(plan) < steps.indexOf(restore));
+  assert.ok(steps.indexOf(restore) < steps.indexOf(checks));
+  assert.ok(steps.indexOf(checks) < steps.indexOf(save));
+  assert.match(restore.uses, /^actions\/cache\/restore@/);
+  assert.match(save.uses, /^actions\/cache\/save@/);
+  assert.deepEqual(save.with, restore.with);
+  assert.equal(
+    save.if,
+    "${{ success() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.plan.outputs.key != '' && steps.restore.outputs.cache-hit != 'true' }}",
+  );
 });

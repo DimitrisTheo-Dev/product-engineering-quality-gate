@@ -49,17 +49,18 @@ function run(command, args, cwd, env = {}) {
   return { ms, stdout: result.stdout.trim() };
 }
 
-function runGate(dir, cache, options, install = true) {
+function runGate(dir, cache, options, install = true, context = {}) {
   rmSync(join(dir, ".quality-gate"), { recursive: true, force: true });
   const { ms } = run(process.execPath, install ? [runtime] : [runtime, "--no-install"], dir, {
     GITHUB_WORKSPACE: dir,
     GITHUB_STEP_SUMMARY: "",
-    npm_config_cache: cache,
+    QG_LOCAL_CACHE_PARENT: cache,
     QG_OPTIONS: JSON.stringify(options),
+    ...context,
   });
   const report = JSON.parse(readFileSync(join(dir, ".quality-gate/report.json"), "utf8"));
   assert.equal(report.passed, true);
-  return { wallMs: ms, timings: /** @type {Timings} */ (report.timings) };
+  return { wallMs: ms, timings: /** @type {Timings} */ (report.timings), report };
 }
 
 function record(/** @type {Samples} */ metrics, name, ms) {
@@ -93,15 +94,21 @@ function runLaunchChecks(dir, cache, metrics) {
   const config = JSON.parse(readFileSync(path, "utf8"));
   const expected = config.checks.filter(({ kind }) => !["lint", "format"].includes(kind));
   for (const check of expected) check.script = script;
-  writeFileSync(path, JSON.stringify(config, null, 2) + "\n");
-  const { timings } = runGate(dir, cache, {}, false);
-  const scriptTimings = timings.checks.filter(({ name }) =>
-    expected.some((check) => check.name === name),
-  );
-  assert.equal(scriptTimings.length, expected.length);
-  for (const { name, ms } of scriptTimings) {
-    record(metrics, `Gate noop (${name})`, ms);
-    record(metrics, `Gate noop minus bare Node (${name})`, ms - bare);
+  for (const [probe, runner] of [
+    ["Gate noop", undefined],
+    ["Opt-in Node noop", "node"],
+  ]) {
+    for (const check of expected) check.runner = runner;
+    writeFileSync(path, JSON.stringify(config, null, 2) + "\n");
+    const { timings } = runGate(dir, cache, {}, false);
+    const scriptTimings = timings.checks.filter(({ name }) =>
+      expected.some((check) => check.name === name),
+    );
+    assert.equal(scriptTimings.length, expected.length);
+    for (const { name, ms } of scriptTimings) {
+      record(metrics, `${probe} (${name})`, ms);
+      record(metrics, `${probe} minus bare Node (${name})`, ms - bare);
+    }
   }
 }
 
@@ -123,6 +130,29 @@ function configure(dir, browser) {
     ],
   };
   writeFileSync(join(dir, "quality-gate.config.json"), JSON.stringify(config, null, 2) + "\n");
+}
+
+function measureDocsOnly(dir, cache) {
+  const git = (...args) =>
+    run(
+      "git",
+      ["-c", "user.name=Benchmark", "-c", "user.email=benchmark@example.test", ...args],
+      dir,
+    ).stdout;
+  git("init", "-b", "main");
+  git("add", ".");
+  git("commit", "-m", "Baseline");
+  const base = git("rev-parse", "HEAD");
+  writeFileSync(join(dir, "README.md"), "# A documentation-only change\n");
+  git("add", "README.md");
+  git("commit", "-m", "Edit docs");
+  const { report, wallMs } = runGate(dir, cache, {}, true, {
+    QG_CHANGE_EVENT: "merge_group",
+    QG_CHANGE_BASE: base,
+    QG_CHANGE_HEAD: git("rev-parse", "HEAD"),
+  });
+  assert.equal(report.checks.find((row) => row.name === "Smoke").reason, "no-matching-changes");
+  return wallMs;
 }
 
 function describe(/** @type {number[] | undefined} */ values) {
@@ -150,6 +180,7 @@ try {
     const warm = new Map();
     /** @type {Samples} */
     const launches = new Map();
+    let docsOnlyMs;
     for (let index = 1; index <= samples; index++) {
       console.error(`${name}: sample ${index}/${samples}`);
       const pair = join(sandbox, name, String(index));
@@ -165,6 +196,7 @@ try {
       }
       runRealChecks(coldDir, cache, cold);
       runRealChecks(warmDir, cache, warm);
+      if (browser && index === samples) docsOnlyMs = measureDocsOnly(warmDir, cache);
       runLaunchChecks(warmDir, cache, launches);
       rmSync(pair, { recursive: true, force: true });
     }
@@ -173,6 +205,10 @@ try {
       console.log(`| ${name} | ${describe(values)} | ${describe(warm.get(name))} |`);
     console.log("\n| Launch probe | Duration |\n| --- | ---: |");
     for (const [name, values] of launches) console.log(`| ${name} | ${describe(values)} |`);
+    if (docsOnlyMs !== undefined)
+      console.log(
+        `\nDocs-only warm run: ${docsOnlyMs.toFixed(2)} ms; Smoke SKIPPED (no-matching-changes).`,
+      );
   }
 } finally {
   rmSync(sandbox, { recursive: true, force: true });

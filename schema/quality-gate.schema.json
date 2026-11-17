@@ -26,6 +26,7 @@
           "script": { "$ref": "#/$defs/script" },
           "concurrent": { "type": "boolean" },
           "tier": { "const": "deep" },
+          "runner": { "const": "node" },
           "paths": {
             "type": "array",
             "uniqueItems": true,

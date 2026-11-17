@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   closeSync,
   constants,
@@ -11,8 +11,18 @@ import {
   writeFileSync,
   appendFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { createHash } from "node:crypto";
+import { availableParallelism, homedir } from "node:os";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  matchesGlob,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 
@@ -114,7 +124,7 @@ export function validateConfig(config) {
   const names = new Set();
   for (const [index, check] of config.checks.entries()) {
     const path = `config.checks[${index}]`;
-    keys(check, ["name", "kind", "script", "concurrent", "tier", "paths"], path);
+    keys(check, ["name", "kind", "script", "concurrent", "tier", "paths", "runner"], path);
     if (typeof check.name !== "string" || !check.name.trim() || oneLine(check.name) !== check.name)
       throw new Error(`${path}.name must be a nonempty single-line label.`);
     if (names.has(check.name)) throw new Error(`Duplicate check name ${check.name}.`);
@@ -127,6 +137,8 @@ export function validateConfig(config) {
       throw new Error(`${path}.concurrent must be a boolean.`);
     if (check.tier !== undefined && check.tier !== "deep")
       throw new Error(`${path}.tier must be deep when specified.`);
+    if (check.runner !== undefined && check.runner !== "node")
+      throw new Error(`${path}.runner must be node when specified.`);
     if (check.paths !== undefined)
       list(
         check.paths,
@@ -196,6 +208,77 @@ function pinnedTools(root, cwd, names) {
     Object.defineProperty(tools, name, { value: installed, enumerable: true });
   }
   return tools;
+}
+
+export function changedFiles(root, event, base, head) {
+  if (
+    !["pull_request", "merge_group"].includes(event) ||
+    !/^[a-f0-9]{40}$/.test(base ?? "") ||
+    !/^[a-f0-9]{40}$/.test(head ?? "")
+  )
+    return null;
+  const git = (args) => {
+    const result = spawnSync("git", args, {
+      cwd: root,
+      encoding: "utf8",
+      timeout: 10_000,
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    return result.status === 0 ? result.stdout : null;
+  };
+  if (event === "pull_request") {
+    const parents = git(["rev-list", "--parents", "-n", "1", "HEAD"])?.trim().split(" ");
+    if (parents?.length !== 3 || parents[1] !== base || parents[2] !== head) return null;
+  } else if (
+    git(["rev-parse", "HEAD"])?.trim() !== head ||
+    git(["merge-base", "--is-ancestor", base, head]) === null
+  ) {
+    return null;
+  }
+  const names = git([
+    "diff",
+    "--name-only",
+    "-z",
+    "--no-renames",
+    "--no-ext-diff",
+    "--no-textconv",
+    base,
+    "HEAD",
+    "--",
+  ]);
+  return names === null ? null : names.split("\0").filter(Boolean);
+}
+
+function canFilter(paths, configPath) {
+  return (
+    paths !== null &&
+    !paths.some(
+      (path) =>
+        path === configPath ||
+        [
+          "package.json",
+          defaults.config,
+          "pnpm-workspace.yaml",
+          ".npmrc",
+          ".yarnrc",
+          ".yarnrc.yml",
+          "bunfig.toml",
+        ].includes(basename(path)) ||
+        Object.hasOwn(locks, basename(path)) ||
+        path.startsWith(".github/workflows/"),
+    )
+  );
+}
+
+function scriptBody(scripts, script) {
+  if (
+    !scripts ||
+    !Object.hasOwn(scripts, script) ||
+    typeof scripts[script] !== "string" ||
+    !scripts[script].trim()
+  )
+    throw new Error(`Missing package script '${script}'. Add it to package.json.`);
+  return scripts[script];
 }
 
 function childEnvironment(overrides) {
@@ -333,6 +416,7 @@ export function installArgs(/** @type {Manager} */ manager, update = false) {
 export async function resolveManager(
   /** @type {Manager} */ manager,
   signal = /** @type {AbortSignal | undefined} */ (undefined),
+  npmVersion = /** @type {string | undefined} */ (undefined),
 ) {
   const trusted = dirname(process.execPath);
   const env =
@@ -342,7 +426,8 @@ export async function resolveManager(
         ? { npm_config_manage_package_manager_versions: "false" }
         : {};
   if (!manager.version) {
-    const version = await run("npm", ["--version"], trusted, { capture: true, signal });
+    const version =
+      npmVersion ?? (await run("npm", ["--version"], trusted, { capture: true, signal }));
     if (!exactVersion.test(version)) throw new Error("Cannot determine the bundled npm version.");
     return { command: "npm", prefix: [], version, env };
   }
@@ -386,6 +471,65 @@ export async function resolveManager(
     "Package manager entrypoint",
   );
   return { command: process.execPath, prefix: [bin], version, env };
+}
+
+export function cacheConfiguration(manager, parent) {
+  /** @type {{path: string, args: string[], env: Record<string, string>}} */
+  const cache = { path: "", args: [], env: {} };
+  if (!parent) return cache;
+  const path = join(parent, "quality-gate-downloads", manager.name);
+  switch (manager.name) {
+    case "npm":
+      return {
+        ...cache,
+        path: join(path, "_cacache"),
+        env: { npm_config_cache: path, npm_config_prefer_offline: "true" },
+      };
+    case "pnpm":
+      return { ...cache, path, args: ["--store-dir", path] };
+    case "yarn":
+      return {
+        ...cache,
+        path,
+        env: {
+          YARN_CACHE_FOLDER: path,
+          ...(manager.version?.startsWith("1.") ? {} : { YARN_ENABLE_GLOBAL_CACHE: "false" }),
+        },
+      };
+    default:
+      return cache;
+  }
+}
+
+export async function planDependencyCache(root, parent) {
+  const selected = detectManager(root);
+  const path = realpathSync(join(root, selected.lockfile));
+  if (!inside(root, path)) throw new Error("The lockfile symlink leaves the checkout.");
+  const version = selected.version ?? (await resolveManager(selected)).version;
+  const store = cacheConfiguration(selected, parent);
+  const digest = createHash("sha256").update(readFileSync(path)).digest("hex");
+  const nodeMajor = process.versions.node.split(".")[0];
+  const key = store.path
+    ? `qg-v2-${process.platform}-${process.arch}-${selected.name}-${version}-node${nodeMajor}-${digest}`
+    : "";
+  return { key, path: store.path, version, manager: selected.name };
+}
+
+export async function publishCachePlan() {
+  try {
+    const root = realpathSync(process.env.GITHUB_WORKSPACE ?? process.cwd());
+    const plan = await planDependencyCache(root, process.env.RUNNER_TEMP);
+    if (process.env.GITHUB_OUTPUT)
+      appendFileSync(
+        process.env.GITHUB_OUTPUT,
+        Object.entries(plan)
+          .map(([key, value]) => `${key}=${value}\n`)
+          .join(""),
+      );
+  } catch {
+    // The checks step reports configuration errors with the normal evidence.
+    console.log("Dependency cache plan unavailable. The gate will validate configuration.");
+  }
 }
 
 export const failed = (rows) => rows.some((row) => row.status === "FAIL");
@@ -446,12 +590,14 @@ export async function main(options = {}, settings = {}) {
   const timings = {
     startupMs: Math.round(startupMs * 1000) / 1000,
     configurationMs: 0,
+    changeDetectionMs: /** @type {number | null} */ (null),
     managerResolutionMs: /** @type {number | null} */ (null),
     installMs: /** @type {number | null} */ (null),
     checks: /** @type {{name: string, ms: number}[]} */ ([]),
+    toolsVerificationMs: /** @type {number | null} */ (null),
     reportingMs: 0,
   };
-  /** @type {{name: string, status: string, detail: string, seconds?: number, script?: string, body?: string, reason?: string}[]} */
+  /** @type {{name: string, status: string, detail: string, seconds?: number, script?: string, body?: string, reason?: string, runner?: string}[]} */
   const results = [];
   const controller = new AbortController();
   const terminate = () => controller.abort();
@@ -466,7 +612,15 @@ export async function main(options = {}, settings = {}) {
     if (!Number.isInteger(timeout) || timeout < 1 || timeout > 1200)
       throw new Error("check-timeout-seconds must be 1..1200.");
     const cwd = packagePath(root, o["working-directory"], "working-directory");
-    config = validateConfig(readJson(packagePath(cwd, o.config, "config")));
+    const configPath = packagePath(cwd, o.config, "config");
+    config = validateConfig(readJson(configPath));
+    for (const kind of config.waive)
+      results.push({
+        name: `Policy waiver (${kind})`,
+        status: "SKIPPED",
+        reason: "waived",
+        detail: `${kind} was explicitly waived.`,
+      });
     const selected = detectManager(root);
     if (!inside(root, realpathSync(join(root, selected.lockfile))))
       throw new Error("The lockfile symlink leaves the checkout.");
@@ -475,10 +629,26 @@ export async function main(options = {}, settings = {}) {
     const resolveStarted = performance.now();
     let manager;
     try {
-      manager = await resolveManager(selected, controller.signal);
+      manager = await resolveManager(selected, controller.signal, settings.npmVersion || undefined);
     } finally {
       timings.managerResolutionMs = elapsed(resolveStarted);
     }
+    const cache = cacheConfiguration(selected, settings.cacheParent);
+    const managerEnv = { ...manager.env, ...cache.env };
+    const event = process.env.QG_CHANGE_EVENT;
+    const base = process.env.QG_CHANGE_BASE;
+    const head = process.env.QG_CHANGE_HEAD;
+    const changeStarted = performance.now();
+    const changes = config.checks.some((check) => check.paths?.length)
+      ? changedFiles(root, event, base, head)
+      : null;
+    timings.changeDetectionMs = elapsed(changeStarted);
+    const filter = canFilter(changes, relative(root, configPath));
+    const scriptEnv = {
+      ...managerEnv,
+      QG_BASE_SHA: /^[a-f0-9]{40}$/.test(base ?? "") ? base : "",
+      QG_HEAD_SHA: /^[a-f0-9]{40}$/.test(head ?? "") ? head : "",
+    };
     managerEvidence = {
       name: selected.name,
       version: manager.version,
@@ -488,11 +658,16 @@ export async function main(options = {}, settings = {}) {
       phase = "Locked dependency installation";
       const installStarted = performance.now();
       try {
-        await run(manager.command, [...manager.prefix, ...installArgs(selected)], root, {
-          timeout: 600,
-          signal: controller.signal,
-          env: manager.env,
-        });
+        await run(
+          manager.command,
+          [...manager.prefix, ...installArgs(selected), ...cache.args],
+          root,
+          {
+            timeout: 600,
+            signal: controller.signal,
+            env: managerEnv,
+          },
+        );
         results.push({
           name: phase,
           status: "PASS",
@@ -504,8 +679,13 @@ export async function main(options = {}, settings = {}) {
       }
     }
     phase = "Installed tools";
-    tools = pinnedTools(root, cwd, config.tools);
-    const execute = async (name, script, grouped = false) => {
+    const toolsStarted = performance.now();
+    try {
+      tools = pinnedTools(root, cwd, config.tools);
+    } finally {
+      timings.toolsVerificationMs = elapsed(toolsStarted);
+    }
+    const execute = async (name, script, grouped = false, preferNode = false) => {
       const start = performance.now();
       const row = {
         name,
@@ -513,22 +693,24 @@ export async function main(options = {}, settings = {}) {
         status: "FAIL",
         detail: "",
         body: /** @type {string | undefined} */ (undefined),
+        runner: /** @type {string | undefined} */ (undefined),
         seconds: 0,
       };
       try {
         const scripts = manifest(cwd).scripts;
-        if (
-          !scripts ||
-          !Object.hasOwn(scripts, script) ||
-          typeof scripts[script] !== "string" ||
-          !scripts[script].trim()
-        )
-          throw new Error(`Missing package script '${script}'. Add it to package.json.`);
-        row.body = scripts[script];
-        await run(manager.command, [...manager.prefix, "run", script], cwd, {
+        row.body = scriptBody(scripts, script);
+        const useNode =
+          preferNode &&
+          selected.name === "npm" &&
+          !Object.hasOwn(scripts, `pre${script}`) &&
+          !Object.hasOwn(scripts, `post${script}`);
+        const command = useNode ? process.execPath : manager.command;
+        const args = useNode ? ["--run", script] : [...manager.prefix, "run", script];
+        row.runner = useNode ? "node" : selected.name;
+        await run(command, args, cwd, {
           timeout,
           signal: controller.signal,
-          env: manager.env,
+          env: scriptEnv,
           grouped,
           label: name,
         });
@@ -537,43 +719,72 @@ export async function main(options = {}, settings = {}) {
       } catch (error) {
         row.detail = message(error);
         console.error(`${oneLine(name)}: ${row.detail}`);
-      } finally {
-        const ms = elapsed(start);
-        row.seconds = seconds(ms);
-        timings.checks.push({ name, ms });
       }
-      return row;
+      const ms = elapsed(start);
+      row.seconds = seconds(ms);
+      return { row, ms };
+    };
+    const add = ({ row, ms = /** @type {number | undefined} */ (undefined) }) => {
+      results.push(row);
+      if (ms !== undefined) timings.checks.push({ name: row.name, ms });
     };
     for (const script of config.setup) {
-      const row = await execute(`Setup ${script}`, script);
-      results.push(row);
-      if (row.status === "FAIL") break;
+      const result = await execute(`Setup ${script}`, script);
+      add(result);
+      if (result.row.status === "FAIL") break;
     }
-    for (const kind of config.waive)
-      results.push({
-        name: `Policy waiver (${kind})`,
-        status: "SKIPPED",
-        reason: "waived",
-        detail: `${kind} was explicitly waived.`,
-      });
     const prerequisiteFailed = failed(results);
-    for (const check of config.checks) {
-      if (prerequisiteFailed)
-        results.push({
-          name: check.name,
-          status: "SKIPPED",
-          reason: "prerequisite-failed",
-          detail: "Setup failed.",
-        });
-      else if (check.tier === "deep" && o.deep !== true)
-        results.push({
-          name: check.name,
-          status: "SKIPPED",
-          reason: "deep-tier",
-          detail: "Enable deep to run this check.",
-        });
-      else results.push(await execute(check.name, check.script));
+    const evaluate = async (check, grouped = false) => {
+      let reason = "";
+      let detail = "";
+      if (prerequisiteFailed || controller.signal.aborted) {
+        reason = "prerequisite-failed";
+        detail = "Setup failed or the gate was stopped.";
+      } else if (check.tier === "deep" && o.deep !== true) {
+        reason = "deep-tier";
+        detail = "Enable deep to run this check.";
+      } else if (
+        filter &&
+        changes &&
+        check.paths?.length &&
+        !changes.some((path) => check.paths.some((glob) => matchesGlob(path, glob)))
+      ) {
+        reason = "no-matching-changes";
+        detail = "Changed files did not match the configured paths.";
+      }
+      if (!reason) return execute(check.name, check.script, grouped, check.runner === "node");
+      if (reason !== "prerequisite-failed") {
+        try {
+          scriptBody(manifest(cwd).scripts, check.script);
+        } catch (error) {
+          return {
+            row: { name: check.name, script: check.script, status: "FAIL", detail: message(error) },
+          };
+        }
+      }
+      return { row: { name: check.name, script: check.script, status: "SKIPPED", reason, detail } };
+    };
+    const cap = availableParallelism();
+    for (let index = 0; index < config.checks.length;) {
+      const check = config.checks[index];
+      if (check.concurrent !== true) {
+        add(await evaluate(check));
+        index++;
+      } else {
+        const batch = [check];
+        while (batch.length < cap && config.checks[index + batch.length]?.concurrent === true)
+          batch.push(config.checks[index + batch.length]);
+        for (const result of await Promise.all(batch.map((entry) => evaluate(entry, true))))
+          add(result);
+        index += batch.length;
+      }
     }
+    if (controller.signal.aborted && !failed(results))
+      results.push({
+        name: "Termination",
+        status: "FAIL",
+        detail: "The gate received a termination signal.",
+      });
   } catch (error) {
     if (phase === "Configuration") timings.configurationMs = elapsed(started);
     const detail = message(error);
@@ -583,7 +794,9 @@ export async function main(options = {}, settings = {}) {
         ? timings.installMs
         : phase === "Package manager"
           ? timings.managerResolutionMs
-          : timings.configurationMs;
+          : phase === "Installed tools"
+            ? timings.toolsVerificationMs
+            : timings.configurationMs;
     results.push({
       name: phase,
       status: "FAIL",
@@ -637,6 +850,7 @@ if (
   const report = await main(JSON.parse(process.env.QG_OPTIONS ?? "{}"), {
     install: !process.argv.includes("--no-install"),
     version,
+    cacheParent: process.env.QG_LOCAL_CACHE_PARENT,
   });
   if (!report.passed) process.exitCode = 1;
 }
