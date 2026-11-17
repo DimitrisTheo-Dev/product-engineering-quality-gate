@@ -2,6 +2,10 @@
 
 A reusable GitHub Actions gate for JS and TS repositories. The central workflow handles locked installs, ordering, timeouts, and evidence. Each product keeps its own package scripts and decides which checks matter.
 
+[![Seven passing checks in a real v2 pull request](docs/images/quality-gate-pr-report.png)](https://github.com/DimitrisTheo-Dev/product-engineering-quality-gate/actions/runs/44051548625)
+
+Report rendered from the [pull request #1 job log](https://github.com/DimitrisTheo-Dev/product-engineering-quality-gate/actions/runs/44051548625/job/133930356046).
+
 ## Adopt it
 
 Run onboarding from a reviewed release checkout with Node 24. Start with a dry run, then inspect the generated patch after applying.
@@ -57,4 +61,4 @@ jobs:
 
 The example fails the job. The JSON report records the script bodies, tool versions, skip reasons, and timings. An explicit waiver appears in the report when a product omits typecheck, testing, or a build.
 
-[Configuration and schema](docs/configuration.md) · [Onboarding](docs/onboarding.md) · [v1 migration](MIGRATION.md) · [Benchmarks](docs/benchmarks.md) · [Verification and release](docs/verification.md) · [Architecture and cache trust](docs/architecture.md)
+[Configuration and schema](docs/configuration.md) · [Onboarding](docs/onboarding.md) · [v1 migration](MIGRATION.md) · [Benchmarks](docs/benchmarks.md) · [Releases](docs/releases.md) · [Architecture and cache trust](docs/architecture.md) · [Troubleshooting](docs/troubleshooting.md)
