@@ -42,18 +42,22 @@ function fixture(t, scripts = {}) {
   return dir;
 }
 
-function runGate(dir, options = {}, executable = runtime) {
-  const result = spawnSync(process.execPath, [executable, "--no-install"], {
-    cwd: dir,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      GITHUB_WORKSPACE: dir,
-      GITHUB_STEP_SUMMARY: join(dir, ".quality-gate/step-summary.md"),
-      QG_OPTIONS: JSON.stringify(options),
+function runGate(dir, options = {}, executable = runtime, install = false) {
+  const result = spawnSync(
+    process.execPath,
+    install ? [executable] : [executable, "--no-install"],
+    {
+      cwd: dir,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GITHUB_WORKSPACE: dir,
+        GITHUB_STEP_SUMMARY: join(dir, ".quality-gate/step-summary.md"),
+        QG_OPTIONS: JSON.stringify(options),
+      },
+      timeout: 30_000,
     },
-    timeout: 30_000,
-  });
+  );
   const report = JSON.parse(readFileSync(join(dir, ".quality-gate/report.json"), "utf8"));
   return { ...result, report };
 }
@@ -128,6 +132,52 @@ test("missing lockfile makes checks unavailable and fails setup", (t) => {
   assert.equal(result.status, 1);
   assert.equal(result.report.checks.find((c) => c.name === "Prerequisites").status, "FAIL");
   assert.equal(result.report.checks.find((c) => c.name === "Oxfmt").status, "SKIPPED");
+  assert.ok(Number.isFinite(result.report.timings.configurationMs));
+  assert.ok(Number.isFinite(result.report.timings.managerResolutionMs));
+  assert.equal(result.report.timings.installMs, null);
+  assert.deepEqual(result.report.timings.checks, []);
+});
+
+test("configuration, locked install, executed checks, and reporting record elapsed time", (t) => {
+  const dir = fixture(t);
+  const pkgPath = join(dir, "package.json");
+  const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+  delete pkg.devDependencies;
+  writeFileSync(pkgPath, JSON.stringify(pkg) + "\n");
+  const lockPath = join(dir, "package-lock.json");
+  writeFileSync(lockPath, JSON.stringify({ name: pkg.name, lockfileVersion: 3, packages: {} }));
+
+  const result = runGate(dir, {}, runtime, true);
+  for (const name of ["Configuration", "Locked dependency installation"]) {
+    const row = result.report.checks.find((c) => c.name === name);
+    assert.equal(row.status, "PASS", result.stdout + result.stderr);
+    assert.ok(Number.isFinite(row.seconds), `${name} is missing elapsed seconds`);
+  }
+  const { timings } = result.report;
+  for (const phase of [
+    "startupMs",
+    "configurationMs",
+    "managerResolutionMs",
+    "installMs",
+    "reportingMs",
+  ]) {
+    assert.ok(Number.isFinite(timings[phase]) && timings[phase] >= 0, phase);
+  }
+  assert.ok(timings.configurationMs >= timings.managerResolutionMs);
+  assert.deepEqual(
+    timings.checks.map((c) => c.name),
+    ["Oxfmt", "Oxlint", "Typecheck", "Build"],
+  );
+  assert.ok(timings.checks.every((c) => Number.isFinite(c.ms) && c.ms >= 0));
+
+  writeFileSync(lockPath, "not JSON\n");
+  const rejected = runGate(dir, {}, runtime, true);
+  assert.equal(rejected.status, 1);
+  assert.ok(Number.isFinite(rejected.report.timings.installMs));
+  assert.deepEqual(rejected.report.timings.checks, []);
+  assert.ok(
+    Number.isFinite(rejected.report.checks.find((c) => c.name === "Prerequisites").seconds),
+  );
 });
 
 test("enabled but unavailable advanced tool fails; deep checks are deferred", (t) => {

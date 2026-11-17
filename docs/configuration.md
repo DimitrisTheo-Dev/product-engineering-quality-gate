@@ -39,6 +39,8 @@ Fallow runs each of `dead-code`, `dupes`, `health`, and `architecture` with `--f
 
 `.quality-gate/report.json` has `schemaVersion: 1`, a boolean `passed`, and `checks[]` with `name`, `status`, `required`, `detail`, and optional elapsed `seconds`. `summary.md` uses the same rows. In this model `required` means required **for this invocation**. Artifact links are added to the GitHub job summary after upload.
 
+The report also includes `timings` in milliseconds. `startupMs` measures Node process startup through runtime module evaluation. `configurationMs` includes `managerResolutionMs`, which measures lockfile and package-manager declaration detection. `installMs` measures the locked install, including any package-manager provisioning performed inside it. `checks` contains `{ name, ms }` for each check the gate attempted, in report order. `reportingMs` covers Markdown rendering and writes, including the job summary when enabled. The final JSON write is included in the externally measured gate wall time. A phase that could not start has a `null` duration. [Benchmark method and commands](benchmarks.md).
+
 | Status         | Meaning                                            | Example                                                            |
 | -------------- | -------------------------------------------------- | ------------------------------------------------------------------ |
 | PASS           | An executed command exited zero                    | Build completed; examine logs for coverage of that build.          |

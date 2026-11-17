@@ -56,7 +56,11 @@ try {
     );
   for (const { stack, manager } of cases) {
     const dir = join(sandbox, `${stack}-${manager.replace("@", "-")}`);
-    cpSync(join(root, "examples", stack), dir, { recursive: true });
+    const example = join(root, "examples", stack);
+    cpSync(example, dir, {
+      recursive: true,
+      filter: (path) => manager === "npm" || path !== join(example, "package-lock.json"),
+    });
     if (manager.includes("@")) {
       const path = join(dir, "package.json");
       const pkg = JSON.parse(readFileSync(path, "utf8"));

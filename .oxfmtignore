@@ -3,3 +3,4 @@ package-lock.json
 .github/workflows/ai-assist.yml
 examples/react-ts/package-lock.json
 examples/node-ts/package-lock.json
+examples/bench-vite-react/package-lock.json

@@ -8,10 +8,15 @@ import {
   appendFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 
 /** @typedef {{name: string, status: string, required: boolean, detail: string, seconds?: number}} Result */
 /** @typedef {{[key: string]: string | boolean | number | undefined}} Options */
+
+const startupMs = Math.round(performance.now() * 1000) / 1000;
+const elapsedMs = (started) => Math.round((performance.now() - started) * 1000) / 1000;
+const displaySeconds = (ms) => Math.round(ms / 100) / 10;
 
 export const defaults = {
   "working-directory": ".",
@@ -248,6 +253,15 @@ export function markdown(results) {
 }
 
 export async function main(options = {}, settings = {}) {
+  const configurationStarted = performance.now();
+  const timings = {
+    startupMs,
+    configurationMs: /** @type {number | null} */ (null),
+    managerResolutionMs: /** @type {number | null} */ (null),
+    installMs: /** @type {number | null} */ (null),
+    checks: /** @type {{name: string, ms: number}[]} */ ([]),
+    reportingMs: 0,
+  };
   const o = { ...defaults, ...options };
   const root = realpathSync(settings.root ?? process.env.GITHUB_WORKSPACE ?? process.cwd());
   /** @type {Result[]} */
@@ -264,25 +278,38 @@ export async function main(options = {}, settings = {}) {
     if (!inside(root, cwd)) throw new Error("working-directory symlink leaves the checkout.");
     const rootPkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
     const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8"));
-    const manager = detectManager(root, rootPkg);
+    const managerStarted = performance.now();
+    let manager;
+    try {
+      manager = detectManager(root, rootPkg);
+    } finally {
+      timings.managerResolutionMs = elapsedMs(managerStarted);
+    }
     checks = planChecks(pkg, o);
+    timings.configurationMs = elapsedMs(configurationStarted);
     results.push({
       name: "Configuration",
       status: "PASS",
       required: true,
       detail: `${manager.name}; install root is checkout root; check directory ${relative(root, cwd) || "."}`,
+      seconds: displaySeconds(timings.configurationMs),
     });
     if (settings.install !== false) {
-      await install(root, manager, seconds);
+      const installStarted = performance.now();
+      try {
+        await install(root, manager, seconds);
+      } finally {
+        timings.installMs = elapsedMs(installStarted);
+      }
       results.push({
         name: "Locked dependency installation",
         status: "PASS",
         required: true,
         detail: `${manager.lockfile}; dependency lifecycle hooks disabled`,
+        seconds: displaySeconds(timings.installMs),
       });
     }
     for (const check of checks) {
-      const started = Date.now();
       const row = {
         name: check.name,
         required: check.required && check.enabled,
@@ -304,6 +331,7 @@ export async function main(options = {}, settings = {}) {
           : "No script selected; no claim of verification.";
         continue;
       }
+      const started = performance.now();
       try {
         if ("tool" in check && check.tool) {
           if (
@@ -332,12 +360,22 @@ export async function main(options = {}, settings = {}) {
         row.status = "FAIL";
         row.detail = error instanceof Error ? error.message : String(error);
         console.error(`${check.name}: ${row.detail}`);
+      } finally {
+        const ms = elapsedMs(started);
+        timings.checks.push({ name: check.name, ms });
+        Object.assign(row, { seconds: displaySeconds(ms) });
       }
-      Object.assign(row, { seconds: Math.round((Date.now() - started) / 100) / 10 });
     }
   } catch (error) {
+    timings.configurationMs ??= elapsedMs(configurationStarted);
     const detail = error instanceof Error ? error.message : String(error);
-    results.push({ name: "Prerequisites", status: "FAIL", required: true, detail });
+    results.push({
+      name: "Prerequisites",
+      status: "FAIL",
+      required: true,
+      detail,
+      seconds: displaySeconds(timings.installMs ?? timings.configurationMs),
+    });
     console.error(detail);
     for (const check of checks)
       results.push({
@@ -347,17 +385,20 @@ export async function main(options = {}, settings = {}) {
         detail: "Unavailable because prerequisite setup failed; see Prerequisites.",
       });
   }
+  const reportingStarted = performance.now();
+  const result = { schemaVersion: 1, passed: !failed(results), checks: results, timings };
   const report = markdown(results);
   const output = join(root, ".quality-gate");
   mkdirSync(output, { recursive: true });
-  writeFileSync(
-    join(output, "report.json"),
-    JSON.stringify({ schemaVersion: 1, passed: !failed(results), checks: results }, null, 2) + "\n",
-  );
-  writeFileSync(join(output, "summary.md"), report);
-  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, report);
+  try {
+    writeFileSync(join(output, "summary.md"), report);
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, report);
+  } finally {
+    timings.reportingMs = elapsedMs(reportingStarted);
+    writeFileSync(join(output, "report.json"), JSON.stringify(result, null, 2) + "\n");
+  }
   console.log(report);
-  return { passed: !failed(results), checks: results };
+  return result;
 }
 
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {

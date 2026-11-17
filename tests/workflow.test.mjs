@@ -34,6 +34,16 @@ test("checked-in workflow executes the exact tested runtime", () => {
   assert.match(run, /if \(!result.passed\) process.exitCode = 1/);
 });
 
+test("generated run bodies use the environment for workflow expressions", () => {
+  for (const name of ["quality-gate", "ai-assist", "benchmark"]) {
+    for (const job of Object.values(workflow(name).jobs)) {
+      for (const step of job.steps ?? []) {
+        if (step.run) assert.ok(!step.run.includes("${{"), `${name}: ${step.name}`);
+      }
+    }
+  }
+});
+
 test("AI workflow has a manual trusted-default-branch allowlist and never installs consumer code", () => {
   const ai = workflow("ai-assist");
   assert.deepEqual(Object.keys(ai.on).sort(), ["workflow_call", "workflow_dispatch"]);

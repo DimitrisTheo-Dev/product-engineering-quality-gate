@@ -2,6 +2,19 @@
 
 Observed on 2026-11-08. Fixtures establish fixture contracts, not production behavior or provider reliability. The [repository is public](https://github.com/DimitrisTheo-Dev/product-engineering-quality-gate) by explicit owner authorization.
 
+## v2 Phase 0 checkpoint
+
+Local Linux x64, Node 24.22.1 and npm 11.9.0 on 2026-11-16. The v1.0.1 timing regressions reproduced missing Configuration and install row durations and a missing timing breakdown on prerequisite failure. The focused tests pass with instrumentation, including a real locked install and an intentionally invalid lockfile.
+
+| Check                                                    | Actual result                                                                                                                                                                                        |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Format, lint, typecheck and build                        | PASS. The generated quality workflow embeds the tested runtime.                                                                                                                                      |
+| `npm test` and `npm run test:product`                    | PASS. 29 unit and workflow tests and five synthetic product contracts.                                                                                                                               |
+| `npm run test:adoption` with and without `-- --managers` | PASS. npm, pnpm 12.18.0, Yarn 1.22.22 and Yarn 4.18.1.                                                                                                                                               |
+| Workflow syntax                                          | PASS with the official actionlint 1.7.12 binary and the repository's pinned archive checksum. The `npm run check:workflows` download path requires GitHub CLI authentication, which was unavailable. |
+
+Hosted benchmark execution and cross-repository runs remain pending. [Local timings and benchmark method](benchmarks.md).
+
 ## v1.0.1 correction
 
 A fresh public v1.0.0 clone under a symlinked filesystem path exposed an entrypoint comparison bug: the local CLI/runner could exit without running because Node canonicalizes module URLs. v1.0.1 resolves the invoked file before comparing it, adds two regression tests, and updates new-adoption guidance. The original v1.0.0 tag is retained unchanged. Patch-release notes record its exact CI and published-checkout verification.
