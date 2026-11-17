@@ -1,32 +1,19 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { gzipSync } from "node:zlib";
 import YAML from "yaml";
 import { defaults } from "../runtime/gate.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const target = resolve(root, ".github/workflows/quality-gate.yml");
+const { version } = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
 const descriptions = {
   "working-directory":
-    "Package directory, relative to checkout. Lockfile and install stay at checkout root.",
-  "typecheck-script": "Required existing package script for type checking.",
-  "build-script": "Required existing package script for the production build.",
-  "test-script":
-    "auto selects test:ci then test; an explicit name must exist; empty cannot disable configured tests.",
-  "product-script": "Optional consumer behavior test script, such as test:product.",
-  "extra-script": "Optional existing lint or CI setup script; retains checks beyond Oxlint.",
-  "smoke-script": "Optional fast smoke test script; runs on every invocation when selected.",
-  "e2e-script": "Optional expensive E2E script; runs only when deep is true.",
-  "security-script": "Optional dependency/security script; runs only when deep is true.",
-  "react-doctor":
-    "Run pinned local React Doctor on React packages, with error-level findings blocking.",
-  fallow:
-    "Enable pinned local Fallow dead code, duplication, complexity, and architecture checks in deep runs.",
-  playwright:
-    "Install local pinned Playwright Chromium and system dependencies when browser tests are selected.",
-  deep: "Explicitly opt in to Fallow, E2E, and dependency/security checks.",
-  "check-timeout-seconds":
-    "Per-command time limit, 1..1200 seconds. The job also has a 30-minute limit.",
+    "Package directory relative to the checkout. Installation stays at the checkout root.",
+  config: "Quality gate JSON config relative to the selected package.",
+  deep: "Run deep checks.",
+  "check-timeout-seconds": "Per-script timeout, 1–1200 seconds.",
 };
 
 const inputs = Object.fromEntries(
@@ -40,103 +27,217 @@ const inputs = Object.fromEntries(
     },
   ]),
 );
-inputs["node-version"] = {
-  description: "Exact Node.js version; default is Node 24 LTS.",
-  required: false,
-  type: "string",
-  default: "24.22.2",
-};
-inputs["upload-playwright-failures"] = {
-  description:
-    "Opt in to uploading sanitized traces/screenshots on failure. Review artifacts for sensitive data first.",
-  required: false,
-  type: "boolean",
-  default: false,
-};
-inputs["report-name"] = {
-  description: "Unique artifact name. Set a distinct value for each caller matrix entry.",
-  required: false,
-  type: "string",
-  default: "quality-report",
-};
+Object.assign(inputs, {
+  "node-version": { description: "Node.js version.", type: "string", default: "24.22.2" },
+  "report-name": {
+    description: "Unique report artifact name.",
+    type: "string",
+    default: "quality-report",
+  },
+  "browser-evidence": {
+    description: "Upload test-results and playwright-report on check failure.",
+    type: "boolean",
+    default: false,
+  },
+});
+
+function requireSafeDelimiter(source, delimiter) {
+  if (source.split(/\r?\n/).includes(delimiter))
+    throw new Error(`Embedded source contains the heredoc delimiter ${delimiter}.`);
+}
+
+function script(source, delimiter, entrypoint) {
+  const program = `${source}\n${entrypoint}`;
+  requireSafeDelimiter(program, delimiter);
+  const body = `node --input-type=module <<'${delimiter}'\n${program}\n${delimiter}\n`;
+  if (body.length > 21_000) throw new Error(`${delimiter} exceeds the workflow run limit.`);
+  return body;
+}
+
+function runnerScript(source, delimiter, exported, entrypoint) {
+  requireSafeDelimiter(source, delimiter);
+  const embedded = gzipSync(source)
+    .toString("base64")
+    .match(/.{1,120}/g)
+    ?.join("\n");
+  const loader = [
+    'import { gunzipSync } from "node:zlib";',
+    "const embedded = `" + embedded + "`;",
+    'const code = gunzipSync(Buffer.from(embedded, "base64"));',
+    "const { " +
+      exported +
+      ' } = await import("data:text/javascript;base64," + code.toString("base64"));',
+  ].join("\n");
+  return script(loader, delimiter, entrypoint);
+}
 
 const runner = readFileSync(resolve(root, "runtime/gate.mjs"), "utf8");
+const reportAssertion = readFileSync(resolve(root, "runtime/assert-report.mjs"), "utf8");
+const checkout = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
+const setupNode = "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1";
+const cacheRestore = "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25";
+const cacheSave = "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25";
+const setupBun = "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6";
+const upload = "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9";
+const versions = {
+  [checkout]: "v7.0.1",
+  [setupNode]: "v7.1.0",
+  [setupBun]: "v2.2.0",
+  [upload]: "v7.0.2",
+  [cacheRestore]: "v5.1.0",
+  [cacheSave]: "v5.1.0",
+};
 const workflow = {
   name: "Reusable product engineering quality gate",
-  on: { workflow_call: { inputs } },
+  on: {
+    workflow_call: {
+      inputs,
+      outputs: {
+        passed: {
+          description: "Verified gate verdict.",
+          value: "${{ jobs.quality.outputs.passed }}",
+        },
+        report: {
+          description: "Name of the uploaded report artifact.",
+          value: "${{ jobs.quality.outputs.report }}",
+        },
+      },
+    },
+  },
   permissions: { contents: "read" },
   jobs: {
     quality: {
       name: "Product engineering quality gate",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 30,
+      outputs: {
+        passed: "${{ steps.verdict.outputs.passed }}",
+        report: "${{ steps.report.outputs.artifact-id && inputs.report-name || '' }}",
+      },
       steps: [
         {
           name: "Check out consumer",
           id: "checkout",
-          uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
-          with: { "persist-credentials": false, "fetch-depth": 1 },
+          uses: checkout,
+          with: { "persist-credentials": false, "fetch-depth": 2 },
         },
         {
           name: "Set up Node",
           id: "node",
-          uses: "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+          uses: setupNode,
           with: { "node-version": "${{ inputs.node-version }}", "package-manager-cache": false },
+        },
+        {
+          name: "Plan dependency download caching",
+          id: "plan",
+          shell: "bash",
+          run: runnerScript(
+            runner,
+            "QUALITY_GATE_CACHE_PLAN",
+            "publishCachePlan",
+            "await publishCachePlan();",
+          ),
+        },
+        {
+          name: "Restore dependency downloads",
+          id: "restore",
+          if: "${{ steps.plan.outputs.key != '' }}",
+          uses: cacheRestore,
+          with: { key: "${{ steps.plan.outputs.key }}", path: "${{ steps.plan.outputs.path }}" },
+        },
+        {
+          name: "Provision the declared Bun version",
+          id: "bun",
+          if: "${{ steps.plan.outputs.manager == 'bun' }}",
+          uses: setupBun,
+          with: { "bun-version": "${{ steps.plan.outputs.version }}" },
         },
         {
           name: "Install and run quality checks",
           id: "checks",
           shell: "bash",
-          env: { QG_OPTIONS: "${{ toJSON(inputs) }}" },
-          run: `node --input-type=module <<'QUALITY_GATE_RUNTIME'\n${runner}\nconst result = await main(JSON.parse(process.env.QG_OPTIONS));\nif (!result.passed) process.exitCode = 1;\nQUALITY_GATE_RUNTIME\n`,
+          env: {
+            QG_OPTIONS: "${{ toJSON(inputs) }}",
+            QG_PLANNED_VERSION: "${{ steps.plan.outputs.version }}",
+            QG_CHANGE_EVENT: "${{ github.event_name }}",
+            QG_CHANGE_BASE:
+              "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}",
+            QG_CHANGE_HEAD:
+              "${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}",
+          },
+          run: runnerScript(
+            runner,
+            "QUALITY_GATE_RUNTIME",
+            "main",
+            `const result = await main(JSON.parse(process.env.QG_OPTIONS), { version: ${JSON.stringify(version)}, cacheParent: process.env.RUNNER_TEMP, npmVersion: process.env.QG_PLANNED_VERSION });\nif (!result.passed) process.exitCode = 1;`,
+          ),
+        },
+        {
+          name: "Verify the gate report and step outcome",
+          id: "verdict",
+          if: "${{ !cancelled() }}",
+          shell: "bash",
+          env: {
+            QG_OUTCOME: "${{ steps.checks.outcome }}",
+            QG_BROWSER_EVIDENCE: "${{ inputs.browser-evidence }}",
+            QG_WORKING_DIRECTORY: "${{ inputs.working-directory }}",
+          },
+          run: script(reportAssertion, "QUALITY_GATE_ASSERT", "publishVerdict();"),
         },
         {
           name: "Upload machine-readable quality report",
           id: "report",
           if: "${{ !cancelled() && steps.checks.outcome != 'skipped' }}",
-          uses: "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+          uses: upload,
           with: {
             name: "${{ inputs.report-name }}",
             path: ".quality-gate/report.json\n.quality-gate/summary.md",
             "include-hidden-files": true,
-            "if-no-files-found": "warn",
+            "if-no-files-found": "error",
             "retention-days": 7,
           },
         },
         {
+          name: "Link the uploaded report",
+          id: "report_link",
+          if: "${{ !cancelled() && steps.report.outputs.artifact-url != '' }}",
+          shell: "bash",
+          env: { QG_REPORT_URL: "${{ steps.report.outputs.artifact-url }}" },
+          run: script(
+            'import { appendFileSync } from "node:fs";',
+            "QUALITY_GATE_REPORT_LINK",
+            String.raw`appendFileSync(process.env.GITHUB_STEP_SUMMARY, "\n[Download the JSON and Markdown report](" + process.env.QG_REPORT_URL + ")\n");`,
+          ),
+        },
+        {
+          name: "Save dependency downloads on default-branch cache miss",
+          id: "save",
+          if: "${{ success() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.plan.outputs.key != '' && steps.restore.outputs.cache-hit != 'true' }}",
+          uses: cacheSave,
+          with: { key: "${{ steps.plan.outputs.key }}", path: "${{ steps.plan.outputs.path }}" },
+        },
+        {
           name: "Upload opted-in browser failure evidence",
-          id: "browser_artifacts",
-          if: "${{ failure() && inputs.upload-playwright-failures }}",
-          uses: "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+          if: "${{ failure() && (steps.verdict.outputs.browserResults != '' || steps.verdict.outputs.browserReport != '') }}",
+          uses: upload,
           with: {
             name: "${{ inputs.report-name }}-browser-failure",
-            path: "${{ inputs.working-directory }}/test-results/\n${{ inputs.working-directory }}/playwright-report/",
+            path: "${{ steps.verdict.outputs.browserResults }}\n${{ steps.verdict.outputs.browserReport }}",
             "include-hidden-files": false,
             "if-no-files-found": "warn",
             "retention-days": 3,
           },
         },
-        {
-          name: "Link artifacts and setup limitations",
-          if: "${{ !cancelled() }}",
-          shell: "bash",
-          env: {
-            REPORT_URL: "${{ steps.report.outputs.artifact-url }}",
-            BROWSER_URL: "${{ steps.browser_artifacts.outputs.artifact-url }}",
-            CHECKOUT: "${{ steps.checkout.outcome }}",
-            NODE: "${{ steps.node.outcome }}",
-            CHECKS: "${{ steps.checks.outcome }}",
-          },
-          run: `node --input-type=module <<'REPORT'\nimport { appendFileSync } from 'node:fs';\nconst lines = [];\nif (process.env.REPORT_URL) lines.push('[Download JSON and Markdown report](' + process.env.REPORT_URL + ')');\nif (process.env.BROWSER_URL) lines.push('[Download browser failure evidence](' + process.env.BROWSER_URL + ')');\nif (process.env.CHECKOUT !== 'success' || process.env.NODE !== 'success') lines.push('**FAIL: setup unavailable.** Checkout or Node setup failed; quality checks were SKIPPED. Read the failed setup step.');\nif (process.env.CHECKS === 'failure') lines.push('**FAIL:** the required quality gate failed. Reporting does not override its exit status.');\nappendFileSync(process.env.GITHUB_STEP_SUMMARY, '\\n' + lines.join('\\n\\n') + '\\n');\nREPORT\n`,
-        },
       ],
     },
   },
 };
-// Caller owns concurrency. Sharing github.workflow-based groups inside a called workflow can cancel its caller.
-const output =
-  "# Generated by scripts/build-workflow.mjs. Edit runtime/gate.mjs and the generator.\n# Pins: checkout v7.0.1; setup-node v7.1.0; upload-artifact v7.0.2.\n" +
-  YAML.stringify(workflow, { lineWidth: 0, blockQuote: "literal" });
+const document = new YAML.Document(workflow);
+workflow.jobs.quality.steps.forEach((step, index) => {
+  if (!("uses" in step) || !step.uses) return;
+  const node = document.getIn(["jobs", "quality", "steps", index, "uses"], true);
+  if (YAML.isScalar(node)) node.comment = " " + versions[step.uses];
+});
 function emit(path, contents) {
   if (process.argv.includes("--check")) {
     if (readFileSync(path, "utf8") !== contents)
@@ -144,8 +245,16 @@ function emit(path, contents) {
     console.log("Generated workflow matches its tested runtime: " + path.split("/").at(-1));
   } else writeFileSync(path, contents);
 }
-emit(target, output);
+emit(
+  target,
+  "# Generated by scripts/build-workflow.mjs. Edit runtime and generator sources.\n" +
+    document.toString({ lineWidth: 0, blockQuote: "literal" }),
+);
 
+requireSafeDelimiter(
+  readFileSync(resolve(root, "runtime/ai-assist.mjs"), "utf8"),
+  "QUALITY_GATE_AI",
+);
 const aiInputs = {
   confirm: {
     description: "Explicitly authorize one paid provider request.",

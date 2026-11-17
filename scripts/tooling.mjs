@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -40,26 +40,33 @@ export function withTool(name, callback) {
     );
   const dir = mkdtempSync(join(tmpdir(), `quality-gate-${name}-`));
   try {
-    const result = spawnSync(
-      "gh",
-      [
-        "api",
-        "--hostname",
-        "github.com",
-        "-H",
-        "Accept: application/octet-stream",
-        `repos/${pin.repo}/releases/assets/${asset.asset}`,
-      ],
-      { timeout: 90_000, maxBuffer: 32 * 1024 * 1024 },
-    );
-    if (result.status !== 0)
-      throw new Error(
-        `Cannot download ${name} ${pin.version} with gh. Check authentication/network or use the official binary manually.`,
+    const local = process.env[`QG_${name.toUpperCase()}_ARCHIVE`];
+    let contents;
+    if (local) {
+      contents = readFileSync(local);
+    } else {
+      const result = spawnSync(
+        "gh",
+        [
+          "api",
+          "--hostname",
+          "github.com",
+          "-H",
+          "Accept: application/octet-stream",
+          `repos/${pin.repo}/releases/assets/${asset.asset}`,
+        ],
+        { timeout: 90_000, maxBuffer: 32 * 1024 * 1024 },
       );
-    if (createHash("sha256").update(result.stdout).digest("hex") !== asset.sha)
+      if (result.status !== 0)
+        throw new Error(
+          `Cannot download ${name} ${pin.version} with gh. Authenticate or supply the pinned release archive.`,
+        );
+      contents = result.stdout;
+    }
+    if (createHash("sha256").update(contents).digest("hex") !== asset.sha)
       throw new Error(`${name} archive checksum mismatch; refusing execution.`);
     const archive = join(dir, "tool.tar.gz");
-    writeFileSync(archive, result.stdout);
+    writeFileSync(archive, contents);
     const unpack = spawnSync("tar", ["-xzf", archive, "-C", dir, name], { encoding: "utf8" });
     if (unpack.status !== 0) throw new Error(`Cannot unpack verified ${name} archive.`);
     const binary = join(dir, name);

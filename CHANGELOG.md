@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.0.0
+
+- Move checks and tool pins into package-local config, with explicit policy waivers and Oxc, Biome, and existing-script presets.
+- Record script bodies, installed tool versions, timings, and skip reasons in schema v2. Verify the report against the job outcome.
+- Cache package downloads under a default-branch write policy. Add Git path selection, explicit concurrent batches, and opt-in Node script launches.
+- Support Bun text lockfiles and exact toolchain pins. Add workspace adoption, v1 migration, pin-only upgrades, and cross-repository canaries.
+
 ## v1.0.1
 
 - Fix onboarding and local gate entrypoints silently exiting when invoked through a symlinked checkout/script path. Resolve the invoked file before comparing it with Node's canonical module URL.

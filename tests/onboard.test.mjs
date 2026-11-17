@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  chmodSync,
   mkdtempSync,
   cpSync,
   mkdirSync,
@@ -11,7 +12,7 @@ import {
   rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { adoptionPlan } from "../scripts/onboard.mjs";
@@ -108,5 +109,104 @@ test("multiple lockfiles and nonimmutable workflow refs are rejected", (t) => {
   assert.throws(() => adoptionPlan({ repo: dir, ref: "v1" }), /immutable/);
   writeFileSync(join(dir, "package-lock.json"), "{}");
   writeFileSync(join(dir, "pnpm-lock.yaml"), "");
-  assert.throws(() => adoptionPlan({ repo: dir, ref: sha }), /Conflicting lockfiles/);
+  assert.throws(() => adoptionPlan({ repo: dir, ref: sha }), /conflicting lockfiles/i);
+});
+
+test("nested presets update the selected package and detect its existing tools", (t) => {
+  const dir = fixture(t);
+  const target = join(dir, "apps/web");
+  mkdirSync(target, { recursive: true });
+  cpSync(join(dir, "package.json"), join(target, "package.json"));
+  const source = readFileSync(join(target, "package.json"), "utf8");
+  const pkg = JSON.parse(source);
+  pkg.devDependencies.eslint = "1.0.0";
+  writeFileSync(join(target, "package.json"), JSON.stringify(pkg));
+  const plan = adoptionPlan({ repo: dir, ref: sha, "working-directory": "apps/web" });
+  assert.deepEqual(plan.conflicts, []);
+  assert.ok(plan.warnings.some((warning) => /formatter\/linter/.test(warning)));
+  assert.ok(plan.changes.includes("apps/web/package.json"));
+  assert.ok(plan.changes.includes("apps/web/quality-gate.config.json"));
+  assert.ok(!plan.changes.includes("package.json"));
+});
+
+test("generated caller pins v2, includes merge queues and keeps default-branch runs", (t) => {
+  const dir = fixture(t);
+  const plan = adoptionPlan({ repo: dir, ref: sha });
+  const workflow = [...plan.edits.values()].find(({ after }) =>
+    after?.includes("name: Product quality"),
+  ).after;
+  assert.match(workflow, new RegExp(`@${sha} # v2\\.0\\.0`));
+  assert.match(workflow, /merge_group:/);
+  assert.match(
+    workflow,
+    /cancel-in-progress: .*github.ref_name != github.event.repository.default_branch/,
+  );
+});
+
+test("migration records an explicit test script and upgrade only rewrites the pin", async (t) => {
+  const dir = fixture(t);
+  const path = join(dir, ".github/workflows/product-quality.yml");
+  const initial = [
+    "# Managed by product-engineering-quality-gate; review and commit locally.",
+    "name: Product quality",
+    "on:",
+    "  pull_request:",
+    "  push:",
+    '    branches: ["main"]',
+    "  workflow_dispatch:",
+    "permissions:",
+    "  contents: read",
+    "concurrency:",
+    "  group: product-quality-${{ github.workflow }}-${{ github.ref }}",
+    "  cancel-in-progress: true",
+    "jobs:",
+    "  quality:",
+    `    uses: DimitrisTheo-Dev/product-engineering-quality-gate/.github/workflows/quality-gate.yml@${"b".repeat(40)}`,
+    "",
+  ].join("\n");
+  writeFileSync(path, initial);
+  const { applyPlan } = await import("../scripts/onboard.mjs");
+  const migration = adoptionPlan({ repo: dir, ref: sha, migrate: true });
+  assert.deepEqual(migration.conflicts, []);
+  assert.equal(readFileSync(path, "utf8"), initial);
+  await applyPlan(migration);
+  assert.deepEqual(adoptionPlan({ repo: dir, ref: sha, migrate: true }).changes, []);
+  const config = JSON.parse(readFileSync(join(dir, "quality-gate.config.json"), "utf8"));
+  assert.equal(config.checks.find(({ kind }) => kind === "test").script, "test");
+  const migrated = readFileSync(path, "utf8");
+  const pin = "c".repeat(40);
+  const upgrade = adoptionPlan({ repo: dir, ref: pin, upgrade: true });
+  assert.deepEqual(upgrade.changes, [".github/workflows/product-quality.yml"]);
+  await applyPlan(upgrade);
+  assert.equal(readFileSync(path, "utf8"), migrated.replace(sha, pin));
+  assert.deepEqual(adoptionPlan({ repo: dir, ref: pin, upgrade: true }).changes, []);
+});
+
+test("failed lock update rolls back a changed manifest and lockfile byte-for-byte", (t) => {
+  const dir = fixture(t);
+  const bin = join(dir, "test-bin");
+  mkdirSync(bin);
+  const npm = join(bin, "npm");
+  writeFileSync(
+    npm,
+    '#!/bin/sh\nif [ "$1" = "--version" ]; then echo 11.9.0; exit 0; fi\nprintf bad > package-lock.json\nexit 7\n',
+  );
+  chmodSync(npm, 0o755);
+  const before = snapshot(dir);
+  const result = spawnSync(
+    process.execPath,
+    [
+      join(root, "scripts/onboard.mjs"),
+      "--repo",
+      dir,
+      "--ref",
+      sha,
+      "--preset",
+      "biome",
+      "--apply",
+    ],
+    { encoding: "utf8", env: { ...process.env, PATH: [bin, process.env.PATH].join(delimiter) } },
+  );
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.deepEqual(snapshot(dir), before);
 });

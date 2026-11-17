@@ -1,0 +1,34 @@
+name: Quality gate benchmark
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.2
+          package-manager-cache: false
+      - name: Provision the locked benchmark browser
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+      - name: Measure cold and warm runs
+        run: |
+          mkdir -p .quality-gate
+          node scripts/bench.mjs | tee .quality-gate/benchmarks.md
+          cat .quality-gate/benchmarks.md >> "$GITHUB_STEP_SUMMARY"
+        shell: bash
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: quality-gate-benchmark
+          path: .quality-gate/benchmarks.md
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,7 @@
+{
+  "checks": [
+    { "name": "Tests", "kind": "test", "script": "test" },
+    { "name": "Build", "kind": "build", "script": "expected-missing-build" }
+  ],
+  "policy": { "waive": ["typecheck"] }
+}

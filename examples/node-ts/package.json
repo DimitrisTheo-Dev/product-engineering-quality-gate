@@ -8,6 +8,8 @@
     "test": "node --test test/*.test.mjs"
   },
   "devDependencies": {
+    "oxfmt": "0.77.0",
+    "oxlint": "1.92.0",
     "typescript": "7.0.2"
   }
 }

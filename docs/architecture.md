@@ -1,36 +1,25 @@
-# Architecture and tradeoffs
+# Architecture
 
-```mermaid
-flowchart LR
-  A[Consumer caller pinned to commit SHA] --> B[Central workflow_call]
-  B --> C[Ephemeral Ubuntu runner]
-  C --> D[Consumer checkout: read-only token]
-  D --> E[Locked install: lifecycle hooks disabled]
-  E --> F[Local Oxfmt and Oxlint]
-  F --> G[Consumer typecheck, tests, build]
-  G --> H[Selected product and advanced checks]
-  H --> I[Job summary + JSON report + failing exit status]
-  J[Separate manual default-branch dispatch] --> K[Opt-in AI workflow: one bounded request]
-```
+The reusable workflow checks out the consumer repository. It contains the exact tested Node runner as a compressed payload decoded in memory with Node built-ins. The generator and tests check the payload bytes and GitHub's 21,000-character per-step command limit. A final verifier also runs from embedded source, after the consumer scripts. [GitHub workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepsrun).
 
-The reusable workflow checks out the **caller** repository. It never expects a companion action or script to be present there. Its self-contained Node runner is generated from `runtime/gate.mjs`; generation checks and tests ensure the embedded code matches the locally exercised source. A release therefore carries its complete runtime without a second checkout or a moving helper reference.
+The install root holds one lockfile. The working directory selects the package and its config. The runtime plans the install, confirms listed exact tool versions, runs setup scripts and checks, and writes evidence. Compatible adjacent checks can run concurrently up to the available CPU count. Logs stay grouped and report order follows the config. Each check has its own timeout and receives SIGTERM before the gate sends SIGKILL.
 
-The install root is the checkout root. `working-directory` selects the package whose scripts/configuration are used. npm, pnpm, and Yarn with `node_modules` are supported; there is one lockfile per invocation. Use root aggregate scripts or a small caller matrix for workspaces. Independent package lockfiles require separate invocations/repository layouts, not implicit discovery.
+The gate treats uncertainty as a full run. For a pull request it verifies the checked-out merge's base and head parent SHAs, then diffs the result against the base. For a merge group it verifies that the base is an ancestor of the checked-out group head. It uses Git and remains within the checkout's available history. Pushes, unknown diffs, and control-file changes bypass path filtering.
 
-Checks run in one job and continue collecting evidence after individual failures. The runner records every verdict and exits nonzero if any executed check fails or required configuration is absent. It writes reports before returning. Upload and summary steps use explicit failure conditions; no step has `continue-on-error`. Setup failures produce an unavailable explanation and skipped checks.
+## Download cache trust
 
-One job avoids repeated installs and a large required-check matrix. Each command has a timeout and the job has a 30-minute ceiling. The caller owns concurrency so a reusable workflow cannot cancel its caller through a shared concurrency group. Expensive checks require explicit selection; Fallow/E2E/security also require `deep: true`. Do not use workflow path filters on a required gate unless another workflow guarantees its status.
+A planning step reads the lockfile and package manager before consumer code executes. It constructs an exact key from platform, architecture, manager and exact version, Node major, and lockfile SHA-256. The workflow chooses a fixed directory under runner temp. npm uses `_cacache`, pnpm its store, Yarn its download cache, and Bun its package download cache. The frozen install still resolves and installs against the checkout's committed lockfile. [Cache action](https://github.com/actions/cache/tree/v5.1.0).
 
-## Security boundary
+PRs and merge queues use only the restore action. Only a successful push to the default branch saves after an exact-key miss. GitHub scopes entries by branch, key and cache version. Caches written from a normal PR run are scoped to its merge ref and cannot be restored by the base branch. The workflow also explicitly excludes PRs from the save condition. [GitHub cache scoping](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#restrictions-for-accessing-a-cache).
 
-PR code is untrusted. It runs only on GitHub-hosted ephemeral Ubuntu runners with `contents: read`, no persisted checkout credentials, no provider secrets, no `secrets: inherit`, and no `pull_request_target`. The gate accepts script **names**, not arbitrary command strings inserted into shell YAML. It runs project-local exact-version Oxfmt/Oxlint rather than downloading fallback executables. Dependency hooks are disabled; necessary native/code-generation setup belongs in an explicitly reviewed `extra-script`.
+Download stores contain third-party package data. Keep credentials and private content outside cache paths. Node modules, compiled output, and browser directories are excluded from the reusable workflow cache. The browser study records archive expansion locally. Hosted restore and transfer costs are pending. [Benchmarks](benchmarks.md).
 
-There is no dependency cache in v1. A cold locked install is simpler to reason about and prevents untrusted PR jobs from writing a cache later consumed by a privileged job. If measured install times justify caching, add only package-download caching with lockfile/OS/runtime keys; do not share executable build caches across trust boundaries.
+## Execution boundary
 
-Code running in the PR job can falsify its own tests and logs. This is a quality gate, not a sandbox for adversarial maintainers or a cryptographic attestation. Protect workflow/config changes with review, restrict token permissions at the repository level, and avoid self-hosted runners for public contributions. Registry credentials/private dependencies need a separate reviewed design; v1 does not accept registry secrets for PR installs.
+The workflow uses read-only contents permissions, hosted ephemeral Ubuntu runners, an unpersisted checkout token, and no declared secrets. Consumer commands are script names passed to the package manager as arguments without a shell at the gate's spawn boundary. The manager then runs the selected package script. Dependency lifecycle hooks are disabled on install. Consumer code still controls its scripts and logs.
 
-AI work uses a separate manual workflow, default-branch check, repository variable, confirmation, and an `ai-assist` environment. It installs/runs no consumer dependencies and does not execute model output. Provider keys exist only in that request step. Output is advisory; it cannot override deterministic failures.
+The gate strips GitHub file-command handles and gate options from child environments. Reports use plain-text code spans for consumer-controlled values. These measures reduce accidental writes and Markdown injection. Code in the same job still shares the filesystem and user account, which makes the report quality evidence for reviewed code rather than a tamper-proof attestation.
 
-## Deliberate limits
+For declared npm, pnpm, and Yarn versions, Corepack from Node 24 provisions the exact manager once. The runtime resolves its entrypoint before running checks. Corepack uses registry signatures for registry distributions, and Yarn 4 uses an integrity hash in the package manager pin or the built-in SHA-512 pin for the verified Yarn 4.18.1 fixture. Hosted Corepack bootstrap has a runner-local directory outside the consumer checkout. The manager payload is outside the dependency cache. The pinned official Bun setup action provisions the declared Bun version when the planner selects a text Bun lockfile. The runner itself remains on Node. [Corepack documentation](https://github.com/nodejs/corepack#when-authoring-packages).
 
-No package registry publication, central SaaS, automatic branch-policy edits, project-specific test framework, metric-driven refactoring, or universal agent instructions. Tool configuration and product assertions stay with the consumer. Native dependency setup is explicit. Standard Linux hosted runners, Node 24 LTS by default; Bun, Yarn PnP, independent nested install roots, GHES, and Windows are outside the verified v1 contract.
+The AI assist workflow runs separately under explicit manual consent and committed default-branch code. [AI assistance](ai-assistance.md).

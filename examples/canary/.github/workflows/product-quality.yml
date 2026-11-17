@@ -1,0 +1,23 @@
+name: Product quality canary
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+    inputs:
+      expect-failure:
+        description: Select an intentionally missing build command.
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: product-quality-canary-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_name != github.event.repository.default_branch }}
+jobs:
+  quality:
+    uses: DimitrisTheo-Dev/product-engineering-quality-gate/.github/workflows/quality-gate.yml@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v2.0.0
+    with:
+      config: ${{ inputs.expect-failure && 'failure.config.json' || 'quality-gate.config.json' }}
+      report-name: canary-quality-report

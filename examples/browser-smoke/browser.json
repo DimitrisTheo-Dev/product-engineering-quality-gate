@@ -1,0 +1,44 @@
+{
+  "tools": ["oxfmt", "oxlint", "typescript", "@playwright/test"],
+  "checks": [
+    {
+      "name": "Oxfmt",
+      "kind": "format",
+      "script": "format:check",
+      "concurrent": true
+    },
+    {
+      "name": "Oxlint",
+      "kind": "lint",
+      "script": "lint",
+      "concurrent": true
+    },
+    {
+      "name": "Typecheck",
+      "kind": "typecheck",
+      "script": "typecheck",
+      "concurrent": true
+    },
+    {
+      "name": "Tests",
+      "kind": "test",
+      "script": "test"
+    },
+    {
+      "name": "Build",
+      "kind": "build",
+      "script": "build"
+    },
+    {
+      "name": "Product behavior",
+      "kind": "product",
+      "script": "test:product"
+    },
+    {
+      "name": "Browser smoke",
+      "kind": "smoke",
+      "script": "test:smoke"
+    }
+  ],
+  "setup": ["quality:browsers"]
+}

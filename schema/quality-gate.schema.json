@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Product engineering quality gate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["checks"],
+  "$defs": {
+    "script": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9:._-]*$" }
+  },
+  "properties": {
+    "setup": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/script" } },
+    "tools": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^(?:@[a-z0-9._-]+/)?[a-z0-9][a-z0-9._-]*$" }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "kind", "script"],
+        "properties": {
+          "name": { "type": "string", "pattern": "\\S" },
+          "kind": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "script": { "$ref": "#/$defs/script" },
+          "concurrent": { "type": "boolean" },
+          "tier": { "const": "deep" },
+          "runner": { "const": "node" },
+          "paths": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "waive": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["typecheck", "test", "build"] }
+        }
+      }
+    }
+  }
+}
