@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { presets } from "./presets.mjs";
 import { spawnSync } from "node:child_process";
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { availableParallelism, tmpdir } from "node:os";
@@ -16,8 +17,8 @@ if (!Number.isInteger(samples) || samples < 5) throw new Error("--samples must b
 const root = fileURLToPath(new URL("../", import.meta.url));
 const runtime = join(root, "runtime/gate.mjs");
 const fixtures = [
-  { name: "node-ts", options: {} },
-  { name: "bench-vite-react", options: { "smoke-script": "test:browser" } },
+  { name: "node-ts", browser: false },
+  { name: "bench-vite-react", browser: true },
 ].filter(({ name }) => !values.fixture || name === values.fixture);
 if (!fixtures.length) throw new Error("--fixture must be node-ts or bench-vite-react.");
 const ignored = new Set([
@@ -67,18 +68,18 @@ function record(/** @type {Samples} */ metrics, name, ms) {
   metrics.get(name)?.push(ms);
 }
 
-function runRealChecks(dir, cache, options, metrics) {
-  const { wallMs, timings } = runGate(dir, cache, options);
+function runRealChecks(dir, cache, metrics) {
+  const { wallMs, timings } = runGate(dir, cache, {});
   record(metrics, "Gate wall time", wallMs);
   record(metrics, "Runtime start", timings.startupMs);
   record(metrics, "Configuration (includes manager detection)", timings.configurationMs);
-  record(metrics, "Package-manager detection", timings.managerResolutionMs);
+  record(metrics, "Package-manager resolution", timings.managerResolutionMs);
   record(metrics, "Locked install", timings.installMs);
   for (const check of timings.checks) record(metrics, check.name, check.ms);
   record(metrics, "Reporting", timings.reportingMs);
 }
 
-function runLaunchChecks(dir, cache, options, metrics) {
+function runLaunchChecks(dir, cache, metrics) {
   const script = "bench:noop";
   const pkgPath = join(dir, "package.json");
   const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
@@ -88,25 +89,40 @@ function runLaunchChecks(dir, cache, options, metrics) {
   record(metrics, "Bare Node", bare);
   record(metrics, "npm run noop", run("npm", ["run", script], dir).ms);
   record(metrics, "node --run noop", run(process.execPath, ["--run", script], dir).ms);
-  const { timings } = runGate(
-    dir,
-    cache,
-    Object.fromEntries(
-      [...Object.keys(options), "typecheck-script", "test-script", "build-script"].map((key) => [
-        key,
-        script,
-      ]),
-    ),
-    false,
-  );
+  const path = join(dir, "quality-gate.config.json");
+  const config = JSON.parse(readFileSync(path, "utf8"));
+  const expected = config.checks.filter(({ kind }) => !["lint", "format"].includes(kind));
+  for (const check of expected) check.script = script;
+  writeFileSync(path, JSON.stringify(config, null, 2) + "\n");
+  const { timings } = runGate(dir, cache, {}, false);
   const scriptTimings = timings.checks.filter(({ name }) =>
-    ["Typecheck", "Tests", "Build", "Smoke"].includes(name),
+    expected.some((check) => check.name === name),
   );
-  assert.equal(scriptTimings.length, 3 + Number("smoke-script" in options));
+  assert.equal(scriptTimings.length, expected.length);
   for (const { name, ms } of scriptTimings) {
     record(metrics, `Gate noop (${name})`, ms);
     record(metrics, `Gate noop minus bare Node (${name})`, ms - bare);
   }
+}
+
+function configure(dir, browser) {
+  const pkgPath = join(dir, "package.json");
+  const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+  Object.assign(pkg.scripts, presets.oxc.scripts);
+  writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+  const config = {
+    tools: ["oxfmt", "oxlint", ...(browser ? ["@playwright/test"] : [])],
+    checks: [
+      ...presets.oxc.checks,
+      { name: "Typecheck", kind: "typecheck", script: "typecheck", concurrent: true },
+      { name: "Tests", kind: "test", script: "test" },
+      { name: "Build", kind: "build", script: "build" },
+      ...(browser
+        ? [{ name: "Smoke", kind: "smoke", script: "test:browser", paths: ["src/**", "e2e/**"] }]
+        : []),
+    ],
+  };
+  writeFileSync(join(dir, "quality-gate.config.json"), JSON.stringify(config, null, 2) + "\n");
 }
 
 function describe(/** @type {number[] | undefined} */ values) {
@@ -127,7 +143,7 @@ console.log(
 
 const sandbox = mkdtempSync(join(tmpdir(), "quality-gate-bench-"));
 try {
-  for (const { name, options } of fixtures) {
+  for (const { name, browser } of fixtures) {
     /** @type {Samples} */
     const cold = new Map();
     /** @type {Samples} */
@@ -140,14 +156,16 @@ try {
       const cache = join(pair, "npm-cache");
       const coldDir = join(pair, "cold");
       const warmDir = join(pair, "warm");
-      for (const dir of [coldDir, warmDir])
+      for (const dir of [coldDir, warmDir]) {
         cpSync(join(root, "examples", name), dir, {
           recursive: true,
           filter: (path) => !ignored.has(basename(path)),
         });
-      runRealChecks(coldDir, cache, options, cold);
-      runRealChecks(warmDir, cache, options, warm);
-      runLaunchChecks(warmDir, cache, options, launches);
+        configure(dir, browser);
+      }
+      runRealChecks(coldDir, cache, cold);
+      runRealChecks(warmDir, cache, warm);
+      runLaunchChecks(warmDir, cache, launches);
       rmSync(pair, { recursive: true, force: true });
     }
     console.log(`\n## ${name}\n\n| Phase | Cold | Warm |\n| --- | ---: | ---: |`);

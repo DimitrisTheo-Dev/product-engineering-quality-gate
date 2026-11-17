@@ -1,6 +1,6 @@
 {
   "name": "product-engineering-quality-gate",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "private": true,
   "description": "A small, reusable GitHub Actions quality gate with safe repository onboarding.",
   "license": "MIT",
@@ -24,7 +24,8 @@
     "test:smoke": "playwright test --config examples/browser-smoke/playwright.config.mjs",
     "check:workflows": "node scripts/check-workflows.mjs",
     "scan:secrets": "node scripts/secret-scan.mjs",
-    "test:smoke:failure": "QG_SMOKE_FORCE_FAILURE=1 playwright test --config examples/browser-smoke/playwright.config.mjs"
+    "test:smoke:failure": "QG_SMOKE_FORCE_FAILURE=1 playwright test --config examples/browser-smoke/playwright.config.mjs",
+    "quality:browsers": "playwright install --with-deps chromium"
   },
   "devDependencies": {
     "@playwright/test": "1.65.0",

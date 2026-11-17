@@ -2,247 +2,317 @@
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
-  readFileSync,
-  writeFileSync,
-  mkdirSync,
   lstatSync,
+  mkdirSync,
+  readFileSync,
   realpathSync,
   unlinkSync,
+  writeFileSync,
 } from "node:fs";
-import { resolve, join, dirname } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { exactVersion, inside } from "../runtime/gate.mjs";
+import {
+  defaults,
+  detectManager,
+  exactVersion,
+  inside,
+  installArgs,
+  resolveManager,
+  run,
+  scriptName,
+  validateConfig,
+} from "../runtime/gate.mjs";
+import { addOns, presets } from "./presets.mjs";
 
-export const versions = {
-  oxfmt: "0.77.0",
-  oxlint: "1.92.0",
-  "react-doctor": "0.9.22",
-  fallow: "3.41.0",
+const ownRoot = fileURLToPath(new URL("../", import.meta.url));
+const releaseVersion = JSON.parse(readFileSync(join(ownRoot, "package.json"), "utf8")).version;
+const reference =
+  "DimitrisTheo-Dev/product-engineering-quality-gate/.github/workflows/quality-gate.yml";
+const managedHeader = "# Managed by product-engineering-quality-gate; review and commit locally.";
+const caller = ".github/workflows/product-quality.yml";
+const inputKinds = {
+  "typecheck-script": ["Typecheck", "typecheck"],
+  "test-script": ["Tests", "test"],
+  "build-script": ["Build", "build"],
+  "extra-script": ["Existing quality checks", "lint"],
+  "product-script": ["Product behavior", "product"],
+  "smoke-script": ["Smoke", "smoke"],
+  "e2e-script": ["E2E", "e2e", "deep"],
+  "security-script": ["Dependency security", "security", "deep"],
 };
-const repository = "DimitrisTheo-Dev/product-engineering-quality-gate";
-const help = `Usage: node scripts/onboard.mjs --repo /path/to/repo [--dry-run | --apply]
-  --ref <40-character SHA>  Immutable workflow revision; defaults to this checkout's HEAD.
-  --working-directory <p>  Package to check; installation and dependencies stay at repository root.
-  --typecheck-script <s>   Existing script, default typecheck.
-  --build-script <s>       Existing script, default build.
-  --test-script <s>        Default auto: test:ci, then test. Existing tests cannot be disabled.
-  --product-script <s>     Optional consumer behavior tests (e.g. test:product).
-  --react-doctor          Opt in, React packages only; review its separate license.
-  --fallow                Opt in to Fallow; runs only with deep: true in the caller.
-Dry run is the default. Apply changes only package.json, the package lockfile, and
-.github/workflows/product-quality.yml. It never formats source, commits, or pushes.
-Requires a Git repository and Node >=24; npm, pnpm, or Yarn with node_modules.
-`;
+const callerInputs = [
+  "working-directory",
+  "node-version",
+  "deep",
+  "check-timeout-seconds",
+  "report-name",
+  "browser-evidence",
+];
 
-function command(cmd, args, cwd, capture = true) {
-  const result = spawnSync(cmd, args, {
-    cwd,
-    encoding: "utf8",
-    stdio: capture ? "pipe" : "inherit",
-    timeout: 180_000,
-    env: { ...process.env, CI: "true" },
-  });
-  if (result.error || result.status !== 0)
-    throw new Error(result.error?.message ?? result.stderr?.trim() ?? `${cmd} failed`);
-  return (result.stdout ?? "").trim();
+function git(cwd, ...args) {
+  const result = spawnSync("git", args, { cwd, encoding: "utf8", timeout: 20_000 });
+  return result.status === 0 ? result.stdout.trim() : "";
 }
-
 function safePath(root, path) {
   if (!inside(root, path)) throw new Error("Target path leaves the repository.");
-  let current = path;
-  while (inside(root, current)) {
-    if (existsSync(current) && lstatSync(current).isSymbolicLink())
-      throw new Error(`Refusing to modify symlink: ${current}`);
+  for (let current = path; inside(root, current); current = dirname(current)) {
+    if (lstatSync(current, { throwIfNoEntry: false })?.isSymbolicLink())
+      throw new Error(`Refusing to modify symlink: ${relative(root, current)}`);
     if (current === root) break;
-    current = dirname(current);
   }
 }
-
-function detect(root, pkg) {
-  const locks = [
-    ["npm", "package-lock.json"],
-    ["npm", "npm-shrinkwrap.json"],
-    ["pnpm", "pnpm-lock.yaml"],
-    ["yarn", "yarn.lock"],
-    ["bun", "bun.lock"],
-    ["bun", "bun.lockb"],
-  ].filter(([, file]) => existsSync(join(root, file)));
-  if (locks.length > 1)
-    throw new Error("Conflicting lockfiles; choose one package manager manually.");
-  const declared = pkg.packageManager?.match(
-    /^(npm|pnpm|yarn|bun)@(\d+\.\d+\.\d+(?:[-+][\da-zA-Z.-]+)?)$/,
+function existing(path) {
+  return existsSync(path) ? readFileSync(path) : null;
+}
+function callerText(branch, pin, inputs, legacy = false) {
+  const pairs = Object.entries(inputs).map(
+    ([key, value]) => `      ${key}: ${JSON.stringify(value)}`,
   );
-  if (pkg.packageManager && !declared)
-    throw new Error("Pin packageManager to name@x.y.z before adopting.");
-  const name = locks[0]?.[0] ?? declared?.[1] ?? "npm";
-  if (declared && declared[1] !== name)
-    throw new Error("packageManager conflicts with the existing lockfile.");
-  if (name === "bun")
-    throw new Error("Bun detected; v1 does not modify Bun repositories. See docs/onboarding.md.");
-  if (name !== "npm" && !declared)
-    throw new Error(`Set an exact packageManager: ${name}@x.y.z first.`);
-  if (
-    existsSync(join(root, ".pnp.cjs")) ||
-    (existsSync(join(root, ".yarnrc.yml")) &&
-      !readFileSync(join(root, ".yarnrc.yml"), "utf8").includes("nodeLinker: node-modules") &&
-      name === "yarn" &&
-      !declared?.[2].startsWith("1."))
-  )
-    throw new Error("Yarn PnP detected or possible; set nodeLinker: node-modules before adoption.");
-  return {
-    name,
-    version: declared?.[2],
-    lockfile:
-      locks[0]?.[1] ??
-      (name === "npm" ? "package-lock.json" : name === "pnpm" ? "pnpm-lock.yaml" : "yarn.lock"),
-  };
+  return [
+    managedHeader,
+    "name: Product quality",
+    "on:",
+    "  pull_request:",
+    ...(legacy ? [] : ["  merge_group:"]),
+    "  push:",
+    `    branches: [${JSON.stringify(branch)}]`,
+    "  workflow_dispatch:",
+    "permissions:",
+    "  contents: read",
+    "concurrency:",
+    "  group: product-quality-${{ github.workflow }}-${{ github.ref }}",
+    legacy
+      ? "  cancel-in-progress: true"
+      : "  cancel-in-progress: ${{ github.ref_name != github.event.repository.default_branch }}",
+    "jobs:",
+    "  quality:",
+    `    uses: ${reference}@${pin}`,
+    ...(pairs.length ? ["    with:", ...pairs] : []),
+    "",
+  ].join("\n");
+}
+
+function v1Caller(source) {
+  const pin = source.match(/@([a-f0-9]{40})(?: # v1\.[\d.]+)?$/m)?.[1];
+  const branchLine = source.match(/^    branches: \[("(?:[^"\\]|\\.)*")\]$/m);
+  if (!pin || !branchLine)
+    throw new Error("Expected a v1 managed caller. Migrate custom YAML manually.");
+  const branch = JSON.parse(branchLine[1]);
+  const prefix = callerText(branch, pin, {}, true).trimEnd();
+  const normalized = source.replace(/ # v1\.[\d.]+$/m, "");
+  const tail = normalized.slice(prefix.length);
+  if (!normalized.startsWith(prefix) || (tail !== "\n" && !tail.startsWith("\n    with:\n")))
+    throw new Error("The v1 caller has custom YAML. Migrate it manually to preserve those edits.");
+  const inputs = {};
+  for (const line of tail.split("\n").slice(2, -1)) {
+    const pair = line.match(/^      ([a-z-]+): (.+)$/);
+    if (
+      !pair ||
+      Object.hasOwn(inputs, pair[1]) ||
+      ![
+        ...callerInputs,
+        ...Object.keys(inputKinds),
+        ...Object.keys(addOns),
+        "upload-playwright-failures",
+      ].includes(pair[1])
+    )
+      throw new Error("Unexpected v1 caller input. Migrate custom YAML manually.");
+    try {
+      inputs[pair[1]] = JSON.parse(pair[2]);
+    } catch {
+      if (!/^[A-Za-z0-9._:/@-]+$/.test(pair[2]))
+        throw new Error(`Unsupported v1 scalar for ${pair[1]}.`);
+      inputs[pair[1]] = pair[2];
+    }
+  }
+  return { branch, inputs };
 }
 
 export function adoptionPlan(options) {
+  if (options.migrate && options.upgrade) throw new Error("Choose --migrate or --upgrade.");
   const root = realpathSync(resolve(options.repo ?? process.cwd()));
-  const gitRoot = realpathSync(command("git", ["rev-parse", "--show-toplevel"], root));
-  if (root !== gitRoot) throw new Error("--repo must be the Git repository root.");
-  const pkgPath = join(root, "package.json");
-  safePath(root, pkgPath);
-  const original = readFileSync(pkgPath, "utf8");
-  const pkg = JSON.parse(original);
-  const cwd = resolve(root, options["working-directory"] ?? ".");
-  safePath(root, cwd);
-  if (!inside(root, realpathSync(cwd))) throw new Error("Package directory leaves the repository.");
-  const consumer = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8"));
-  const manager = detect(root, pkg);
-  const ownRoot = fileURLToPath(new URL("../", import.meta.url));
-  const ref = options.ref ?? command("git", ["rev-parse", "HEAD"], ownRoot);
+  if (git(root, "rev-parse", "--show-toplevel") !== root)
+    throw new Error("--repo must be the Git repository root.");
+  const ref = options.ref ?? git(ownRoot, "rev-parse", "HEAD");
   if (!/^[a-f0-9]{40}$/.test(ref))
     throw new Error("--ref must be a full immutable 40-character commit SHA.");
-  const dependencies = { ...consumer.dependencies, ...consumer.devDependencies };
-  const react = Boolean(dependencies.react);
+  const pin = `${ref} # v${releaseVersion}`;
+  const workflowPath = join(root, caller);
+  safePath(root, workflowPath);
+  const old = existing(workflowPath)?.toString("utf8") ?? "";
+  /** @type {Map<string, {before: Buffer | null, after: string | null}>} */
+  const edits = new Map();
+  const change = (path, after) => {
+    safePath(root, path);
+    const before = existing(path);
+    if (after === null || before?.toString("utf8") !== after) edits.set(path, { before, after });
+  };
   const warnings = [];
   const conflicts = [];
-  const scripts = consumer.scripts ?? {};
-  const typecheck = options["typecheck-script"] ?? "typecheck";
-  const build = options["build-script"] ?? "build";
-  for (const name of [typecheck, build])
-    if (!scripts[name])
-      warnings.push(`Missing required script '${name}'; the gate will fail until you add it.`);
-  const tests = options["test-script"] ?? "auto";
-  if (tests === "" && (scripts.test || scripts["test:ci"]))
-    warnings.push(
-      "Existing tests cannot be disabled with an empty input; select a real CI test script.",
+  if (options.upgrade) {
+    const lines = old.split(/(?<=\n)/);
+    const matches = lines.filter((line) => line.trimStart().startsWith(`uses: ${reference}@`));
+    const match = matches[0]?.match(
+      /^(\s*uses: [^@]+@)[a-f0-9]{40} +# v([2-9]|[1-9]\d+)\.\d+\.\d+(?:-[\w.-]+)?(\r?\n)?$/,
     );
-  if (tests === "auto" && !scripts["test:ci"] && !scripts.test)
-    warnings.push("No test script detected: Tests will be NOT CONFIGURED.");
-  for (const name of [tests === "auto" ? "" : tests, options["product-script"] ?? ""])
-    if (name && !scripts[name])
-      warnings.push(`Selected script '${name}' does not exist; CI will fail.`);
-  if (options["react-doctor"] && !react)
-    conflicts.push("React Doctor requested but this package does not declare React.");
+    if (matches.length !== 1 || !match)
+      throw new Error("Expected a single v2 use with a version comment. Use --migrate for v1.");
+    change(workflowPath, old.replace(matches[0], `${match[1]}${pin}${match[3] ?? ""}`));
+    return {
+      root,
+      ref,
+      edits,
+      conflicts,
+      warnings,
+      changes: [...edits.keys()].map((path) => relative(root, path)),
+    };
+  }
+
+  let migrated;
+  if (options.migrate && !old) throw new Error("No v1 caller to migrate.");
+  if (options.migrate) {
+    if (old.startsWith(managedHeader) && /^    uses: .*@[a-f0-9]{40} # v2\./m.test(old))
+      return { root, ref, edits, conflicts, warnings, changes: [] };
+    migrated = v1Caller(old);
+  }
+  const selected = { ...migrated?.inputs, ...options };
+  const cwd = resolve(root, selected["working-directory"] ?? ".");
+  const pkgPath = join(cwd, "package.json");
+  const installManifest = join(root, "package.json");
+  const configPath = join(cwd, defaults.config);
+  for (const path of [pkgPath, installManifest, configPath]) safePath(root, path);
+  const original = readFileSync(pkgPath, "utf8");
+  const pkg = JSON.parse(original);
+  const rootPkg = JSON.parse(readFileSync(installManifest, "utf8"));
+  const manager = detectManager(root, rootPkg, { allowMissing: true });
+  const lockPath = join(root, manager.lockfile);
+  safePath(root, lockPath);
+  const workspace = join(root, "pnpm-workspace.yaml");
+  if (manager.name === "pnpm") safePath(root, workspace);
+  const workspaceBefore = manager.name === "pnpm" ? existing(workspace) : null;
+  const next = structuredClone(pkg);
+  const scripts = pkg.scripts ?? {};
+  const dependencies = { ...pkg.dependencies, ...pkg.devDependencies };
+  const react = Boolean(dependencies.react);
   if (
-    [...Object.keys(pkg.devDependencies ?? {}), ...Object.keys(pkg.dependencies ?? {})].some(
-      (name) => ["prettier", "@biomejs/biome", "eslint"].includes(name),
+    Object.keys(dependencies).some((name) =>
+      ["prettier", "@biomejs/biome", "eslint"].includes(name),
     )
   )
     warnings.push(
-      "Existing formatter/linter detected. Its scripts and configurations will be preserved; review Oxfmt differences before making this check required.",
+      "Existing formatter/linter detected in the selected package. Its configuration is preserved.",
     );
-  if (pkg.workspaces || existsSync(join(root, "pnpm-workspace.yaml")))
-    warnings.push(
-      "Monorepo detected: one lockfile/install root. Use root aggregate scripts or a caller matrix; see docs/examples.md.",
-    );
-  if (existsSync(join(root, ".npmrc")))
-    warnings.push(
-      "Existing .npmrc is preserved. Do not pass registry/provider secrets to untrusted PR jobs.",
-    );
-  const next = structuredClone(pkg);
-  const addScript = (name, value) => {
-    next.scripts ??= {};
-    if (next.scripts[name] && next.scripts[name] !== value)
-      conflicts.push(`Script '${name}' already exists with a different command; no overwrite.`);
-    else next.scripts[name] = value;
-  };
-  addScript("quality:format", "oxfmt --check");
-  addScript("quality:lint", "oxlint --deny-warnings --ignore-pattern '**/node_modules/**'");
-  if (options["react-doctor"])
-    addScript(
-      "quality:react",
-      "react-doctor . --yes --no-score --no-supply-chain --blocking error",
-    );
-  if (options.fallow)
-    addScript(
-      "quality:fallow",
-      "fallow dead-code --fail-on-issues --fail-on-parse-error && fallow dupes --fail-on-issues && fallow health --fail-on-issues --fail-on-parse-error && fallow architecture --fail-on-issues --fail-on-parse-error",
-    );
-  const selected = [
-    "oxfmt",
-    "oxlint",
-    ...(options["react-doctor"] ? ["react-doctor"] : []),
-    ...(options.fallow ? ["fallow"] : []),
+  if (selected["react-doctor"] && !react)
+    conflicts.push("React Doctor requires React in the selected package.");
+  const preset = selected.preset ?? "oxc";
+  if (!Object.hasOwn(presets, preset)) throw new Error("Choose --preset oxc, biome or existing.");
+  const entries = [
+    presets[preset],
+    ...Object.entries(addOns)
+      .filter(([name]) => selected[name] === true)
+      .map(([, data]) => data),
   ];
-  for (const name of selected) {
-    const version = next.dependencies?.[name] ?? next.devDependencies?.[name];
-    if (version && !exactVersion.test(version))
-      conflicts.push(
-        `Existing ${name}@${version} is not exact; pin it manually without changing your chosen version.`,
-      );
-    else if (!version) {
-      next.devDependencies ??= {};
-      next.devDependencies[name] = versions[name];
+  /** @type {{setup: string[], tools: string[], checks: {name: string, kind: string, script: string, tier?: string, concurrent?: boolean}[], policy: {waive: string[]}}} */
+  const config = { setup: [], tools: [], checks: [], policy: { waive: selected.waive ?? [] } };
+  for (const entry of entries) {
+    for (const [name, body] of Object.entries(entry.scripts)) {
+      next.scripts ??= {};
+      if (
+        Object.hasOwn(next.scripts, name) &&
+        next.scripts[name] !== body &&
+        !(migrated && name === "quality:format" && next.scripts[name] === "oxfmt --check")
+      )
+        conflicts.push(`Script '${name}' already exists with a different command.`);
+      else next.scripts[name] = body;
+    }
+    for (const [name, version] of Object.entries(entry.dependencies)) {
+      const current = dependencies[name];
+      if (current !== undefined && (typeof current !== "string" || !exactVersion.test(current)))
+        conflicts.push(`Pin the existing ${name}@${current} to an exact version.`);
+      if (current === undefined) {
+        next.devDependencies ??= {};
+        next.devDependencies[name] = version;
+      }
+      config.tools.push(name);
+    }
+    config.setup.push(...(entry.setup ?? []));
+    config.checks.push(...(entry.checks ?? []));
+  }
+  if (preset === "existing") {
+    /** @type {[string, string, string[]][]} */
+    const checks = [
+      ["format", "Existing format check", ["format:check", "check:format", "quality:format"]],
+      ["lint", "Existing lint", ["lint", "lint:check", "quality:lint"]],
+    ];
+    for (const [kind, name, candidates] of checks) {
+      const script = candidates.find((candidate) => scripts[candidate]);
+      if (script) config.checks.push({ kind, name, script });
     }
   }
-  const pairs = {
-    "working-directory": options["working-directory"] ?? ".",
-    "typecheck-script": typecheck,
-    "build-script": build,
-    "test-script": tests,
-    ...(scripts.lint ? { "extra-script": "lint" } : {}),
-    ...(options["product-script"] ? { "product-script": options["product-script"] } : {}),
-    ...(options["react-doctor"] ? { "react-doctor": true } : {}),
-    ...(options.fallow ? { fallow: true } : {}),
+  const choices = {
+    "typecheck-script": "typecheck",
+    "test-script": scripts["test:ci"] ? "test:ci" : "test",
+    "build-script": "build",
+    ...(preset === "oxc" && scripts.lint ? { "extra-script": "lint" } : {}),
   };
-  for (const key of ["typecheck-script", "build-script", "test-script", "product-script"]) {
-    const value = pairs[key];
-    if (value && !/^[a-zA-Z0-9][a-zA-Z0-9:._-]*$/.test(value))
-      conflicts.push(`${key} must be a script name, not a command.`);
-  }
-  const withLines = Object.entries(pairs)
-    .filter(
-      ([key, value]) =>
-        !(key === "working-directory" && value === ".") &&
-        !(key === "typecheck-script" && value === "typecheck") &&
-        !(key === "build-script" && value === "build") &&
-        !(key === "test-script" && value === "auto"),
+  for (const [input, [name, kind, tier]] of Object.entries(inputKinds)) {
+    const explicit = selected[input];
+    const script =
+      input === "test-script" && explicit === "auto" && migrated
+        ? choices[input]
+        : (explicit ?? choices[input]);
+    if (config.policy.waive.includes(kind) && explicit === undefined) continue;
+    if (script === undefined) continue;
+    if (
+      typeof script !== "string" ||
+      !scriptName.test(script) ||
+      !Object.hasOwn(scripts, script) ||
+      !String(scripts[script]).trim()
     )
-    .map(
-      ([key, value]) =>
-        `      ${key}: ${typeof value === "boolean" ? value : JSON.stringify(value)}`,
+      conflicts.push(
+        `Add existing package script '${script}' for ${kind}${["typecheck", "test", "build"].includes(kind) ? ` or use --waive ${kind}` : ""}.`,
+      );
+    config.checks.push({ name, kind, script, ...(tier ? { tier } : {}) });
+  }
+  try {
+    validateConfig(config);
+  } catch (error) {
+    conflicts.push(error instanceof Error ? error.message : String(error));
+  }
+  const configText = JSON.stringify(config, null, 2) + "\n";
+  const originalConfig = existing(configPath)?.toString("utf8");
+  if (originalConfig !== undefined && originalConfig !== configText)
+    conflicts.push(`${relative(root, configPath)} already exists with different content.`);
+  const branch =
+    migrated?.branch ??
+    git(root, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD").replace(
+      /^origin\//,
+      "",
     );
-  const remoteHead = spawnSync(
-    "git",
-    ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
-    { cwd: root, encoding: "utf8" },
-  ).stdout?.trim();
-  const currentBranch = command("git", ["symbolic-ref", "--short", "HEAD"], root);
-  const defaultBranch =
-    remoteHead?.replace(/^origin\//, "") ||
-    (["main", "master"].includes(currentBranch) ? currentBranch : "main");
-  if (!remoteHead && !["main", "master"].includes(currentBranch))
-    warnings.push(
-      "Default branch could not be detected; caller push trigger assumes main. Review it before committing.",
-    );
-  const workflow = `# Managed by product-engineering-quality-gate; review and commit locally.\nname: Product quality\non:\n  pull_request:\n  push:\n    branches: [${JSON.stringify(defaultBranch)}]\n  workflow_dispatch:\npermissions:\n  contents: read\nconcurrency:\n  group: product-quality-\${{ github.workflow }}-\${{ github.ref }}\n  cancel-in-progress: true\njobs:\n  quality:\n    uses: ${repository}/.github/workflows/quality-gate.yml@${ref}\n${withLines.length ? "    with:\n" + withLines.join("\n") + "\n" : ""}`;
-  const workflowPath = join(root, ".github/workflows/product-quality.yml");
-  const lockPath = join(root, manager.lockfile);
-  safePath(root, workflowPath);
-  safePath(root, lockPath);
-  if (existsSync(workflowPath) && readFileSync(workflowPath, "utf8") !== workflow)
-    conflicts.push(
-      ".github/workflows/product-quality.yml exists with different content; review/update it manually.",
-    );
+  const current = git(root, "branch", "--show-current");
+  const defaultBranch = branch || (current === "master" ? "master" : "main");
+  if (!branch && !["main", "master"].includes(current))
+    warnings.push("Default branch could not be detected. Review the caller's main push trigger.");
+  if (selected["upload-playwright-failures"] === true) selected["browser-evidence"] = true;
+  if (cwd === root) delete selected["working-directory"];
+  const workflow = callerText(
+    defaultBranch,
+    pin,
+    Object.fromEntries(
+      callerInputs.filter((key) => selected[key] !== undefined).map((key) => [key, selected[key]]),
+    ),
+  );
+  if (old && old !== workflow && !migrated)
+    conflicts.push(`${caller} differs. Use --upgrade to change only a v2 pin.`);
   const indent = original.match(/\n([ \t]+)"/)?.[1] ?? "  ";
-  const packageText = JSON.stringify(next, null, indent) + "\n";
-  const packageChanged = JSON.stringify(pkg) !== JSON.stringify(next);
-  const workflowChanged = !existsSync(workflowPath);
+  if (JSON.stringify(next) !== JSON.stringify(pkg))
+    change(pkgPath, JSON.stringify(next, null, indent) + "\n");
+  const dependencyChanges =
+    JSON.stringify(next.devDependencies) !== JSON.stringify(pkg.devDependencies);
+  if (dependencyChanges || !existsSync(lockPath)) change(lockPath, null);
+  change(configPath, configText);
+  change(workflowPath, workflow);
   return {
     root,
     cwd,
@@ -251,108 +321,95 @@ export function adoptionPlan(options) {
     stack: react ? "React/TypeScript or JavaScript" : "Node/TypeScript or JavaScript",
     warnings,
     conflicts,
-    packageChanged,
-    workflowChanged,
-    changes: [
-      ...(packageChanged
-        ? ["package.json", manager.lockfile]
-        : !existsSync(lockPath)
-          ? [manager.lockfile]
-          : []),
-      ...(workflowChanged ? [".github/workflows/product-quality.yml"] : []),
-    ],
-    packageText,
-    workflow,
-    pkgPath,
-    workflowPath,
+    edits,
     lockPath,
+    workspace,
+    workspaceBefore,
+    packageText: JSON.stringify(next, null, indent) + "\n",
+    changes: [...edits.keys()].map((path) => relative(root, path)),
   };
 }
 
-export function applyPlan(plan) {
+export async function applyPlan(plan) {
   if (plan.conflicts.length) throw new Error("Resolve the adoption conflicts before applying.");
   if (!plan.changes.length) return;
-  const workspacePath = join(plan.root, "pnpm-workspace.yaml");
-  if (plan.manager.name === "pnpm") safePath(plan.root, workspacePath);
-  const backups = new Map(
-    [
-      plan.pkgPath,
-      plan.lockPath,
-      plan.workflowPath,
-      ...(plan.manager.name === "pnpm" ? [workspacePath] : []),
-    ].map((path) => [path, existsSync(path) ? readFileSync(path) : null]),
-  );
+  const active = new Set();
+  for (const [path, { before }] of plan.edits) {
+    safePath(plan.root, path);
+    const current = existing(path);
+    if (before ? !current?.equals(before) : current !== null)
+      throw new Error(`${relative(plan.root, path)} changed since planning. Rerun onboarding.`);
+  }
   try {
-    if (plan.packageChanged || !existsSync(plan.lockPath)) {
-      writeFileSync(plan.pkgPath, plan.packageText);
-      const { name, version } = plan.manager;
-      const args =
-        name === "npm"
-          ? ["install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund"]
-          : name === "pnpm"
-            ? [
-                "install",
-                "--lockfile-only",
-                "--ignore-scripts",
-                "--no-frozen-lockfile",
-                "--config.minimumReleaseAgeStrict=true",
-              ]
-            : version?.startsWith("1.")
-              ? ["install", "--ignore-scripts"]
-              : ["install", "--no-immutable", "--mode=skip-build"];
-      // Explicit apply may fetch registry metadata, but dependency hooks never run.
-      if (name === "npm" && !version) command("npm", args, plan.root, false);
-      else
-        command(
-          "npm",
-          ["exec", "--yes", "--package=corepack@0.36.0", "--", "corepack", name, ...args],
+    for (const [path, { after }] of plan.edits) {
+      active.add(path);
+      if (path === plan.lockPath) {
+        const manager = await resolveManager(plan.manager);
+        await run(
+          manager.command,
+          [...manager.prefix, ...installArgs(plan.manager, true)],
           plan.root,
-          false,
+          { timeout: 180, env: manager.env },
         );
-      if (name === "pnpm") {
-        const before = backups.get(workspacePath);
-        const after = existsSync(workspacePath) ? readFileSync(workspacePath) : null;
-        if ((before === null) !== (after === null) || (before && after && !before.equals(after))) {
-          throw new Error(
-            "pnpm changed workspace policy during dependency resolution; adoption was rolled back. Review minimumReleaseAge and pin eligible versions manually.",
-          );
+        if (!existsSync(path))
+          throw new Error("Package manager did not write the planned lockfile.");
+        if (plan.manager.name === "pnpm") {
+          const workspaceAfter = existing(plan.workspace);
+          const before = plan.workspaceBefore;
+          if (before ? !workspaceAfter?.equals(before) : workspaceAfter !== null)
+            throw new Error(
+              "pnpm changed workspace policy. Review release-age rules and choose eligible versions.",
+            );
         }
+      } else {
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, after);
       }
     }
-    if (plan.workflowChanged) {
-      mkdirSync(dirname(plan.workflowPath), { recursive: true });
-      writeFileSync(plan.workflowPath, plan.workflow);
-    }
   } catch (error) {
-    for (const [path, content] of backups) {
-      if (content === null) {
+    for (const path of active) {
+      const { before } = plan.edits.get(path);
+      if (before === null) {
         if (existsSync(path)) unlinkSync(path);
-      } else writeFileSync(path, content);
+      } else writeFileSync(path, before);
+    }
+    if (plan.manager?.name === "pnpm" && plan.lockPath && active.has(plan.lockPath)) {
+      if (plan.workspaceBefore) writeFileSync(plan.workspace, plan.workspaceBefore);
+      else if (existsSync(plan.workspace)) unlinkSync(plan.workspace);
     }
     throw error;
   }
 }
 
-export function main(args = process.argv.slice(2)) {
-  const { values } = parseArgs({
+export async function main(args = process.argv.slice(2)) {
+  const parsed = parseArgs({
     args,
     options: {
-      repo: { type: "string" },
-      ref: { type: "string" },
-      "working-directory": { type: "string" },
-      "typecheck-script": { type: "string" },
-      "build-script": { type: "string" },
-      "test-script": { type: "string" },
-      "product-script": { type: "string" },
-      "dry-run": { type: "boolean" },
-      apply: { type: "boolean" },
-      "react-doctor": { type: "boolean" },
-      fallow: { type: "boolean" },
-      help: { type: "boolean" },
+      ...Object.fromEntries(
+        ["repo", "ref", "preset", "working-directory", ...Object.keys(inputKinds)].map((name) => [
+          name,
+          { type: "string" },
+        ]),
+      ),
+      ...Object.fromEntries(
+        ["dry-run", "apply", "migrate", "upgrade", "help", ...Object.keys(addOns)].map((name) => [
+          name,
+          { type: "boolean" },
+        ]),
+      ),
+      waive: { type: "string", multiple: true },
     },
   });
+  const values = /** @type {Record<string, string | boolean | string[] | undefined>} */ (
+    parsed.values
+  );
   if (values.help) {
-    console.log(help);
+    console.log(
+      "Usage: node scripts/onboard.mjs --repo PATH [--preset oxc|biome|existing] [--apply]\n" +
+        "Dry run is default. Use --migrate for a v1 managed caller, or --upgrade --ref SHA for a v2 pin.\n" +
+        "Select --working-directory DIR, --typecheck-script NAME, --build-script NAME, --test-script NAME,\n" +
+        "--product-script NAME, --react-doctor, --fallow, --playwright or --waive KIND as needed.",
+    );
     return;
   }
   if (values.apply && values["dry-run"]) throw new Error("Choose --apply or --dry-run.");
@@ -373,23 +430,17 @@ export function main(args = process.argv.slice(2)) {
       2,
     ),
   );
-  if (plan.conflicts.length) {
-    process.exitCode = 1;
-    return;
-  }
-  if (values.apply) {
-    applyPlan(plan);
-    console.log(
-      plan.changes.length
-        ? "Applied. Inspect git diff, install dependencies, and run the gate before committing."
-        : "Already adopted; no files changed.",
-    );
-  }
+  if (plan.conflicts.length) process.exitCode = 1;
+  else if (values.apply) await applyPlan(plan);
 }
 
-if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (
+  process.argv[1] &&
+  process.argv[1] !== "-" &&
+  realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
   try {
-    main();
+    await main();
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

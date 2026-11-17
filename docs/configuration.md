@@ -1,51 +1,43 @@
-# Configuration reference
+# Configuration
 
-Invoke `.github/workflows/quality-gate.yml` at a full release commit SHA. The generated caller supplies read-only permissions, PR/main triggers, and cancellation of obsolete runs. The workflow has no declared secrets. Do not add `secrets: inherit`.
+Place `quality-gate.config.json` in the package that owns the checks. The checkout root owns the install and lockfile. Use a pinned workflow commit SHA from a reviewed release.
 
-| Input                        | Default          | Behavior                                                                                                                                                                                       |
-| ---------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `node-version`               | `24.22.2`        | Runtime supplied to SHA-pinned setup-node. Prefer an exact supported version.                                                                                                                  |
-| `working-directory`          | `.`              | Relative package directory; must remain inside checkout, including symlinks. Root owns lockfile/install.                                                                                       |
-| `typecheck-script`           | `typecheck`      | Required package script; empty or missing fails.                                                                                                                                               |
-| `build-script`               | `build`          | Required package script; empty or missing fails.                                                                                                                                               |
-| `test-script`                | `auto`           | Chooses `test:ci` then `test`. Absent tests are NOT CONFIGURED; an explicitly selected missing script fails. An empty input cannot disable configured tests; missing required selection fails. |
-| `extra-script`               | empty            | Additional existing lint/CI setup script. Selected scripts must exist and pass. Onboarding retains an existing `lint` here.                                                                    |
-| `product-script`             | empty            | Consumer behavior tests, e.g. `test:product`; runs in fast gate when selected.                                                                                                                 |
-| `smoke-script`               | empty            | Fast consumer smoke tests; runs when selected.                                                                                                                                                 |
-| `react-doctor`               | `false`          | Run React Doctor only in a package declaring React. Missing local exact-version dependency fails.                                                                                              |
-| `fallow`                     | `false`          | Enable dead code, duplication, complexity, architecture; runs only with `deep: true`.                                                                                                          |
-| `e2e-script`                 | empty            | Runs only with `deep: true`.                                                                                                                                                                   |
-| `security-script`            | empty            | Consumer dependency/security command; runs only with `deep: true`.                                                                                                                             |
-| `deep`                       | `false`          | Enables configured Fallow, E2E, and dependency/security checks.                                                                                                                                |
-| `playwright`                 | `false`          | Installs Chromium with system dependencies from local pinned `@playwright/test` when selected browser tests will run.                                                                          |
-| `upload-playwright-failures` | `false`          | On failure upload `test-results/` and `playwright-report/` in the package directory; three-day retention. Opt in only after reviewing their contents.                                          |
-| `check-timeout-seconds`      | `300`            | Per-command timeout, integer 1..1200; Unix child process groups are stopped. Job limit is 30 minutes.                                                                                          |
-| `report-name`                | `quality-report` | Unique artifact name, seven-day retention. Set distinct names for matrix entries or multiple calls in a run.                                                                                   |
-
-Formatting and linting always run directly against local pinned tools:
-
-```text
-oxfmt --check
-oxlint --deny-warnings --ignore-pattern **/node_modules/**
+```json
+{
+  "tools": ["typescript"],
+  "setup": ["generate:types"],
+  "checks": [
+    { "name": "Typecheck", "kind": "typecheck", "script": "typecheck" },
+    { "name": "Tests", "kind": "test", "script": "test:ci" },
+    { "name": "Build", "kind": "build", "script": "build" },
+    { "name": "Browser", "kind": "e2e", "script": "test:e2e", "tier": "deep" }
+  ]
+}
 ```
 
-Existing Oxfmt/Oxlint configs are discovered normally. Node_modules are excluded explicitly from Oxlint. Generated output should be excluded in the consumer's own config. This workflow does not migrate ESLint/Prettier/Biome rules; keep existing CI and use `extra-script` for additional checks.
+| Field                    | Meaning                                                                                                                                          |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `setup`                  | Existing package scripts in execution order. A failure prevents checks from running.                                                             |
+| `tools`                  | Exact-pinned dependencies to verify, including their installed versions. A pin can be in the checked package or an ancestor within the checkout. |
+| `checks`                 | Required check definitions. Each name is unique. A kind is a lowercase identifier. A script is an exact package script name.                     |
+| `tier`                   | Set `deep` on a check to run it only when the caller sets `deep: true`.                                                                          |
+| `concurrent` and `paths` | Optional execution hints for opt-in batches and repository-relative file selection.                                                              |
+| `policy.waive`           | An explicit list of omitted `typecheck`, `test`, or `build` kinds. A fast check or a waiver is required for each kind.                           |
 
-React Doctor runs `react-doctor . --yes --no-score --no-supply-chain --blocking error`. Errors block; warnings remain visible. Scoring/telemetry and separate supply-chain checks are disabled by these flags. Review its [license](../THIRD_PARTY_NOTICES.md).
+The runtime rejects unknown keys. The [JSON Schema](../schema/quality-gate.schema.json) supplies editor completion and structural validation. The runner also enforces unique names, safe paths, and the required-kind policy. Use exact registry versions for listed tools. A catalog or workspace reference delegates version selection elsewhere and is rejected for a listed tool.
 
-Fallow runs each of `dead-code`, `dupes`, `health`, and `architecture` with `--fail-on-issues`. Dead-code, health, and architecture also use `--fail-on-parse-error`; the pinned dupes subcommand rejects that flag. Those graph-based checks supply the parse-error gate in a full deep run. Configure meaningful entry points, ignores, baselines, and boundaries in the consumer first. Thresholds are the tool's configured defaults; v1 does not invent an architecture policy or suppress existing findings. A configured deep check is SKIPPED in a shallow run.
+| Workflow input          | Default                    | Meaning                                                                                            |
+| ----------------------- | -------------------------- | -------------------------------------------------------------------------------------------------- |
+| `working-directory`     | `.`                        | Package path within the checkout.                                                                  |
+| `config`                | `quality-gate.config.json` | Config path within that package.                                                                   |
+| `deep`                  | `false`                    | Enables deep checks.                                                                               |
+| `node-version`          | `24.22.2`                  | Node version used for the gate.                                                                    |
+| `check-timeout-seconds` | `300`                      | Per-script limit from 1 to 1200 seconds. Installs have a separate 600-second limit.                |
+| `report-name`           | `quality-report`           | Unique artifact name. Set distinct names for multiple calls in a run.                              |
+| `browser-evidence`      | `false`                    | Opt-in upload of browser traces and screenshots on failure. Review their contents before enabling. |
 
 ## Reporting model
 
-`.quality-gate/report.json` has `schemaVersion: 1`, a boolean `passed`, and `checks[]` with `name`, `status`, `required`, `detail`, and optional elapsed `seconds`. `summary.md` uses the same rows. In this model `required` means required **for this invocation**. Artifact links are added to the GitHub job summary after upload.
+The report at `.quality-gate/report.json` records the gate version, tool versions, manager, a boolean `passed`, and rows with `PASS`, `FAIL`, or `SKIPPED`. A row passes only after a command exits zero. Script rows include the selected script name and the body read from the package manifest before execution. Failures emit GitHub error annotations. Skipped rows carry a reason such as `deep-tier`, `prerequisite-failed`, or `waived`. The workflow publishes `passed` and the `report` artifact name as outputs.
 
-The report also includes `timings` in milliseconds. `startupMs` measures Node process startup through runtime module evaluation. `configurationMs` includes `managerResolutionMs`, which measures lockfile and package-manager declaration detection. `installMs` measures the locked install, including any package-manager provisioning performed inside it. `checks` contains `{ name, ms }` for each check the gate attempted, in report order. `reportingMs` covers Markdown rendering and writes, including the job summary when enabled. The final JSON write is included in the externally measured gate wall time. A phase that could not start has a `null` duration. [Benchmark method and commands](benchmarks.md).
-
-| Status         | Meaning                                            | Example                                                            |
-| -------------- | -------------------------------------------------- | ------------------------------------------------------------------ |
-| PASS           | An executed command exited zero                    | Build completed; examine logs for coverage of that build.          |
-| FAIL           | Command or prerequisite failed                     | Missing typecheck script; fix script/input and rerun.              |
-| SKIPPED        | Deferred or unavailable due to setup               | Fallow selected but `deep: false`; dependency install failed.      |
-| NOT CONFIGURED | Optional capability has no selected implementation | No product behavior test script; no claim of product verification. |
-
-Missing required configuration and every executed failed check produce a failing process/job. A failed upload can also fail the job. Test counts/assertions remain in command logs; v1 does not pretend to parse every test framework's output. Cancelled/timed-out runners may have no final report; the GitHub conclusion is authoritative.
+The matching summary uses the same verdicts. Timings are in milliseconds and cover startup, configuration, package-manager resolution, locked install, attempted scripts, and reporting. A phase that could not start has a null duration. The final JSON write is counted in the external wall time. [Benchmark method](benchmarks.md).

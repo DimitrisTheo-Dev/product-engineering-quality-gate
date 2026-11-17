@@ -1,48 +1,39 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, symlinkSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, symlinkSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { detectManager, failed, planChecks } from "../runtime/gate.mjs";
+import { detectManager, failed } from "../runtime/gate.mjs";
+import { verifyReport } from "../runtime/assert-report.mjs";
 
-const root = fileURLToPath(new URL("../", import.meta.url));
-const runtime = join(root, "runtime/gate.mjs");
-const versions = { oxfmt: "0.77.0", oxlint: "1.92.0" };
+const runtime = fileURLToPath(new URL("../runtime/gate.mjs", import.meta.url));
+const checks = ["typecheck", "test", "build"].map((name) => ({ name, kind: name, script: name }));
 
-function fixture(t, scripts = {}) {
+function fixture(t) {
   const dir = mkdtempSync(join(tmpdir(), "quality-gate-runner-test-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  mkdirSync(join(dir, "node_modules/.bin"), { recursive: true });
-  for (const name of ["oxfmt", "oxlint"])
-    symlinkSync(join(root, "node_modules/.bin", name), join(dir, "node_modules/.bin", name));
+  writeFileSync(join(dir, "quality-gate.config.json"), JSON.stringify({ checks }));
+  writeFileSync(
+    join(dir, "package-lock.json"),
+    JSON.stringify({ name: "test-fixture", lockfileVersion: 3, packages: {} }),
+  );
   writeFileSync(
     join(dir, "package.json"),
-    JSON.stringify(
-      {
-        name: "synthetic-runner-test",
-        type: "module",
-        scripts: {
-          typecheck: 'node -e "process.exit(0)"',
-          build: 'node -e "process.exit(0)"',
-          ...scripts,
-        },
-        devDependencies: versions,
+    JSON.stringify({
+      name: "test-fixture",
+      scripts: {
+        prepare: "node -e 'process.exit(17)'",
+        ...Object.fromEntries(checks.map(({ script }) => [script, 'node -e ""'])),
       },
-      null,
-      2,
-    ) + "\n",
+    }),
   );
-  writeFileSync(join(dir, "package-lock.json"), "{}\n");
-  writeFileSync(join(dir, ".gitignore"), "node_modules/\n.quality-gate/\n");
-  writeFileSync(join(dir, "fixture.mjs"), "export const value = 1;\n");
-  const fmt = spawnSync(join(root, "node_modules/.bin/oxfmt"), [], { cwd: dir, encoding: "utf8" });
-  assert.equal(fmt.status, 0, fmt.stderr);
   return dir;
 }
 
-function runGate(dir, options = {}, executable = runtime, install = false) {
+function gate(dir, options = {}, executable = runtime, install = false) {
+  rmSync(join(dir, ".quality-gate"), { recursive: true, force: true });
   const result = spawnSync(
     process.execPath,
     install ? [executable] : [executable, "--no-install"],
@@ -52,180 +43,84 @@ function runGate(dir, options = {}, executable = runtime, install = false) {
       env: {
         ...process.env,
         GITHUB_WORKSPACE: dir,
-        GITHUB_STEP_SUMMARY: join(dir, ".quality-gate/step-summary.md"),
+        GITHUB_STEP_SUMMARY: "",
         QG_OPTIONS: JSON.stringify(options),
       },
       timeout: 30_000,
     },
   );
+  assert.ifError(result.error);
   const report = JSON.parse(readFileSync(join(dir, ".quality-gate/report.json"), "utf8"));
   return { ...result, report };
 }
 
-test("passing commands produce a real pass; absent optional checks are never PASS", (t) => {
-  const result = runGate(fixture(t));
-  assert.equal(result.status, 0, result.stdout + result.stderr);
-  assert.equal(result.report.passed, true);
-  assert.equal(result.report.checks.find((c) => c.name === "Oxfmt").status, "PASS");
-  for (const name of ["Tests", "Product behavior", "React Doctor", "E2E", "Fallow complexity"])
-    assert.equal(result.report.checks.find((c) => c.name === name).status, "NOT CONFIGURED");
-});
-
-test("a symlinked runner entrypoint executes checks and writes evidence", (t) => {
+test("report and process verdicts mirror every combination of command outcomes", (t) => {
   const dir = fixture(t);
-  const linked = join(dir, "node_modules/linked-gate.mjs");
-  symlinkSync(runtime, linked);
-  const result = runGate(dir, {}, linked);
-  assert.equal(result.status, 0, result.stdout + result.stderr);
-  assert.equal(result.report.passed, true);
-  assert.equal(result.report.checks.find((c) => c.name === "Oxfmt").status, "PASS");
-});
-
-test("actual Oxfmt failure is preserved through JSON and Markdown reporting", (t) => {
-  const dir = fixture(t);
-  writeFileSync(join(dir, "fixture.mjs"), "export const value={bad:[1,2,3]}");
-  const result = runGate(dir);
-  assert.equal(result.status, 1);
-  assert.equal(result.report.passed, false);
-  assert.equal(result.report.checks.find((c) => c.name === "Oxfmt").status, "FAIL");
-  assert.match(readFileSync(join(dir, ".quality-gate/summary.md"), "utf8"), /\*\*FAIL\*\*/);
-});
-
-test("actual Oxlint warnings fail and do not prevent other checks from reporting", (t) => {
-  const dir = fixture(t);
-  writeFileSync(join(dir, "fixture.mjs"), "const unused = 1;\n");
-  const result = runGate(dir);
-  assert.equal(result.status, 1);
-  assert.equal(result.report.checks.find((c) => c.name === "Oxlint").status, "FAIL");
-  assert.equal(result.report.checks.find((c) => c.name === "Build").status, "PASS");
-});
-
-test("an explicitly configured missing script fails instead of silently skipping", (t) => {
-  const result = runGate(fixture(t), { "product-script": "test:missing" });
-  assert.equal(result.status, 1);
-  const product = result.report.checks.find((c) => c.name === "Product behavior");
-  assert.equal(product.status, "FAIL");
-  assert.match(product.detail, /Missing package script/);
-});
-
-test("a failing consumer test and a missing required typecheck both fail", (t) => {
-  const result = runGate(fixture(t, { test: 'node -e "process.exit(7)"' }), {
-    "typecheck-script": "missing",
-  });
-  assert.equal(result.status, 1);
-  assert.equal(result.report.checks.find((c) => c.name === "Tests").status, "FAIL");
-  assert.equal(result.report.checks.find((c) => c.name === "Typecheck").status, "FAIL");
-});
-
-test("configured tests cannot be silently disabled with an empty input", (t) => {
-  const result = runGate(fixture(t, { test: 'node -e "process.exit(0)"' }), { "test-script": "" });
-  assert.equal(result.status, 1);
-  const row = result.report.checks.find((c) => c.name === "Tests");
-  assert.equal(row.status, "NOT CONFIGURED");
-  assert.equal(row.required, true);
-});
-
-test("missing lockfile makes checks unavailable and fails setup", (t) => {
-  const dir = fixture(t);
-  rmSync(join(dir, "package-lock.json"));
-  const result = runGate(dir);
-  assert.equal(result.status, 1);
-  assert.equal(result.report.checks.find((c) => c.name === "Prerequisites").status, "FAIL");
-  assert.equal(result.report.checks.find((c) => c.name === "Oxfmt").status, "SKIPPED");
-  assert.ok(Number.isFinite(result.report.timings.configurationMs));
-  assert.ok(Number.isFinite(result.report.timings.managerResolutionMs));
-  assert.equal(result.report.timings.installMs, null);
-  assert.deepEqual(result.report.timings.checks, []);
-});
-
-test("configuration, locked install, executed checks, and reporting record elapsed time", (t) => {
-  const dir = fixture(t);
-  const pkgPath = join(dir, "package.json");
-  const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-  delete pkg.devDependencies;
-  writeFileSync(pkgPath, JSON.stringify(pkg) + "\n");
-  const lockPath = join(dir, "package-lock.json");
-  writeFileSync(lockPath, JSON.stringify({ name: pkg.name, lockfileVersion: 3, packages: {} }));
-
-  const result = runGate(dir, {}, runtime, true);
-  for (const name of ["Configuration", "Locked dependency installation"]) {
-    const row = result.report.checks.find((c) => c.name === name);
-    assert.equal(row.status, "PASS", result.stdout + result.stderr);
-    assert.ok(Number.isFinite(row.seconds), `${name} is missing elapsed seconds`);
+  for (let mask = 0; mask < 8; mask++) {
+    const scripts = Object.fromEntries(
+      checks.map(({ script }, index) => [
+        script,
+        `node -e "require('node:fs').appendFileSync('executed', '${script}\\n'); process.exit(${Number(Boolean(mask & (1 << index)))})"`,
+      ]),
+    );
+    writeFileSync(join(dir, "executed"), "");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts }));
+    const { status, report } = gate(dir);
+    assert.equal(status, Number(mask !== 0));
+    assert.equal(report.passed, !failed(report.checks));
+    assert.equal(report.passed, mask === 0);
+    assert.equal(verifyReport(dir, status === 0 ? "success" : "failure"), report.passed);
+    const executed = readFileSync(join(dir, "executed"), "utf8").trim().split("\n");
+    for (const [index, row] of report.checks.entries()) {
+      assert.equal(row.status, mask & (1 << index) ? "FAIL" : "PASS");
+      assert.equal(row.body, scripts[row.script]);
+      assert.ok(executed.includes(row.script));
+    }
   }
-  const { timings } = result.report;
-  for (const phase of [
+});
+
+test("a symlinked entrypoint executes checks and writes evidence", (t) => {
+  const dir = fixture(t);
+  const linked = join(dir, "runner.mjs");
+  symlinkSync(runtime, linked);
+  assert.equal(gate(dir, {}, linked).status, 0);
+});
+
+test("locked install skips lifecycle hooks and records durations on success and failure", (t) => {
+  const dir = fixture(t);
+  const { report, status } = gate(dir, {}, runtime, true);
+  assert.equal(status, 0);
+  const install = report.checks.find((row) => row.name === "Locked dependency installation");
+  assert.equal(install.status, "PASS");
+  assert.ok(Number.isFinite(install.seconds));
+  for (const key of [
     "startupMs",
     "configurationMs",
     "managerResolutionMs",
     "installMs",
     "reportingMs",
-  ]) {
-    assert.ok(Number.isFinite(timings[phase]) && timings[phase] >= 0, phase);
-  }
-  assert.ok(timings.configurationMs >= timings.managerResolutionMs);
-  assert.deepEqual(
-    timings.checks.map((c) => c.name),
-    ["Oxfmt", "Oxlint", "Typecheck", "Build"],
-  );
-  assert.ok(timings.checks.every((c) => Number.isFinite(c.ms) && c.ms >= 0));
-
-  writeFileSync(lockPath, "not JSON\n");
-  const rejected = runGate(dir, {}, runtime, true);
+  ])
+    assert.ok(Number.isFinite(report.timings[key]), key);
+  writeFileSync(join(dir, "package-lock.json"), "not JSON");
+  const rejected = gate(dir, {}, runtime, true);
   assert.equal(rejected.status, 1);
   assert.ok(Number.isFinite(rejected.report.timings.installMs));
-  assert.deepEqual(rejected.report.timings.checks, []);
-  assert.ok(
-    Number.isFinite(rejected.report.checks.find((c) => c.name === "Prerequisites").seconds),
-  );
+  assert.ok(rejected.report.checks.slice(1).every((row) => row.reason === "prerequisite-failed"));
+  rmSync(join(dir, "package-lock.json"));
+  const unavailable = gate(dir);
+  assert.equal(unavailable.report.timings.installMs, null);
+  assert.equal(unavailable.report.checks[0].name, "Configuration");
 });
 
-test("enabled but unavailable advanced tool fails; deep checks are deferred", (t) => {
+test("package and config paths cannot escape the checkout", (t) => {
   const dir = fixture(t);
-  const result = runGate(dir, { fallow: true, deep: true });
-  assert.equal(result.status, 1);
-  assert.equal(result.report.checks.find((c) => c.name === "Fallow architecture").status, "FAIL");
-  const shallow = runGate(dir, { fallow: true });
-  assert.equal(shallow.status, 0);
-  assert.equal(
-    shallow.report.checks.find((c) => c.name === "Fallow architecture").status,
-    "SKIPPED",
-  );
-});
-
-test("mutable tool dependencies are rejected before executing them", (t) => {
-  const dir = fixture(t);
-  const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
-  pkg.devDependencies.oxlint = "^1.92.0";
-  writeFileSync(join(dir, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
-  const result = runGate(dir);
-  assert.equal(result.status, 1);
-  assert.match(result.report.checks.find((c) => c.name === "Oxlint").detail, /exact version/);
-});
-
-test("package directories cannot escape the checkout, including through symlinks", (t) => {
-  const dir = fixture(t);
-  const result = runGate(dir, { "working-directory": resolve(dir, "..") });
-  assert.equal(result.status, 1);
   assert.match(
-    result.report.checks.find((c) => c.name === "Prerequisites").detail,
-    /inside the checkout/,
+    gate(dir, { "working-directory": resolve(dir, "..") }).stderr,
+    /relative path|inside/,
   );
   symlinkSync(tmpdir(), join(dir, "outside"));
-  const linked = runGate(dir, { "working-directory": "outside" });
-  assert.equal(linked.status, 1);
-  assert.match(
-    linked.report.checks.find((c) => c.name === "Prerequisites").detail,
-    /symlink leaves/,
-  );
-});
-
-test("timeouts fail a check without hiding its diagnostics", (t) => {
-  const result = runGate(fixture(t, { test: 'node -e "setTimeout(() => {}, 10000)"' }), {
-    "check-timeout-seconds": 1,
-  });
-  assert.equal(result.status, 1);
-  assert.match(result.report.checks.find((c) => c.name === "Tests").detail, /timeout|ETIMEDOUT/);
+  assert.match(gate(dir, { "working-directory": "outside" }).stderr, /symlink leaves/);
+  assert.match(gate(dir, { config: ".." }).stderr, /inside/);
 });
 
 test("conflicting lockfiles and manager declarations are rejected", (t) => {
@@ -235,9 +130,13 @@ test("conflicting lockfiles and manager declarations are rejected", (t) => {
   assert.throws(() => detectManager(dir, {}), /exactly one/);
 });
 
-test("report verdict treats missing required configuration as failure", () => {
-  assert.equal(failed([{ status: "NOT CONFIGURED", required: true }]), true);
-  assert.equal(failed([{ status: "NOT CONFIGURED", required: false }]), false);
-  const plan = planChecks({ scripts: { "test:ci": "vitest run", test: "vitest" } });
-  assert.equal(plan.find((c) => c.name === "Tests").script, "test:ci");
+test("report assertion rejects missing, contradictory and substituted reports", (t) => {
+  const dir = fixture(t);
+  assert.throws(() => verifyReport(dir, "failure"), /could not be verified/);
+  gate(dir);
+  assert.throws(() => verifyReport(dir, "failure"), /could not be verified/);
+  const report = join(dir, ".quality-gate/report.json");
+  rmSync(report);
+  symlinkSync(join(dir, "package.json"), report);
+  assert.throws(() => verifyReport(dir, "success"), /could not be verified/);
 });

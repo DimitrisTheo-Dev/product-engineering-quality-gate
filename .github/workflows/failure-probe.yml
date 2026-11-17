@@ -11,6 +11,5 @@ jobs:
   expected-failure:
     uses: ./.github/workflows/quality-gate.yml
     with:
-      typecheck-script: intentionally-missing-quality-gate-probe
-      product-script: test:product
+      config: examples/failure-probe.config.json
       report-name: expected-failure-report
