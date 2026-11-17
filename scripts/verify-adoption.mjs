@@ -59,6 +59,7 @@ function check(dir, options, expected = 0) {
     {
       GITHUB_WORKSPACE: dir,
       GITHUB_STEP_SUMMARY: "",
+      QG_LOCAL_CACHE_PARENT: join(sandbox, "runner-cache"),
       QG_OPTIONS: JSON.stringify(options),
     },
     expected,
@@ -80,7 +81,7 @@ try {
     { stack: "node-ts", manager: undefined, workspace: false, preset: "biome" },
   ];
   if (process.argv.includes("--managers")) {
-    for (const manager of [undefined, "pnpm@12.18.0", "yarn@1.22.22", "yarn@4.18.1"])
+    for (const manager of [undefined, "pnpm@12.18.0", "yarn@1.22.22", "yarn@4.18.1", "bun@1.4.4"])
       cases.push({ stack: "node-ts", manager, workspace: true, preset: "oxc" });
   }
   for (const { stack, manager, workspace, preset } of cases) {
@@ -148,8 +149,26 @@ try {
       );
     }
     const gateOptions = { "working-directory": selected, deep: advanced };
+    if (manager?.startsWith("bun")) {
+      const manifest = join(target, "package.json");
+      const pkg = JSON.parse(readFileSync(manifest, "utf8"));
+      pkg.scripts.prepare = 'node -e "process.exit(19)"';
+      pkg.scripts.test =
+        'node -e "if (process.versions.bun) process.exit(18)" && ' + pkg.scripts.test;
+      writeJson(manifest, pkg);
+    }
     const { report } = check(dir, gateOptions);
     assert.equal(report.checks.find((row) => row.name === "Tests").status, "PASS");
+    if (manager?.startsWith("bun")) {
+      assert.equal(report.manager.version, "1.4.4");
+      assert.equal(report.manager.lockfile, "bun.lock");
+      const manifest = join(target, "package.json");
+      const pkg = JSON.parse(readFileSync(manifest, "utf8"));
+      pkg.scripts.test = 'node -e "process.exit(7)"';
+      writeJson(manifest, pkg);
+      const { report: broken } = check(dir, gateOptions, 1);
+      assert.equal(broken.checks.find(({ name }) => name === "Tests").status, "FAIL");
+    }
     if (preset === "biome") {
       assert.ok(report.tools["@biomejs/biome"]);
       const probe = join(target, "src/probe.ts");

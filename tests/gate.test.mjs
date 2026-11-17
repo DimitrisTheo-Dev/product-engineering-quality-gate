@@ -140,3 +140,21 @@ test("report assertion rejects missing, contradictory and substituted reports", 
   symlinkSync(join(dir, "package.json"), report);
   assert.throws(() => verifyReport(dir, "success"), /could not be verified/);
 });
+
+test("Bun requires a pinned version and the committed text lockfile", (t) => {
+  const dir = fixture(t);
+  rmSync(join(dir, "package-lock.json"));
+  const binary = join(dir, "bun.lockb");
+  writeFileSync(binary, "");
+  assert.throws(
+    () => detectManager(dir, {}),
+    /--save-text-lockfile --frozen-lockfile --lockfile-only/,
+  );
+  rmSync(binary);
+  writeFileSync(join(dir, "bun.lock"), "{}");
+  assert.throws(() => detectManager(dir, {}), /bun@x.y.z/);
+  assert.throws(() => detectManager(dir, { packageManager: "bun@1.4.4-beta.1" }), /bun@x.y.z/);
+  assert.equal(detectManager(dir, { packageManager: "bun@1.4.4" }).lockfile, "bun.lock");
+  writeFileSync(join(dir, "package-lock.json"), "{}");
+  assert.throws(() => detectManager(dir, { packageManager: "bun@1.4.4" }), /exactly one/);
+});

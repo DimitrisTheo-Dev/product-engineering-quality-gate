@@ -119,3 +119,12 @@ test("cache restores exact download stores and saves only after a default-branch
     "${{ success() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.plan.outputs.key != '' && steps.restore.outputs.cache-hit != 'true' }}",
   );
 });
+
+test("Bun provisioning is pinned, exact and conditional on the manager plan", () => {
+  const steps = workflow("quality-gate").jobs.quality.steps;
+  const bun = steps.find((step) => step.id === "bun");
+  assert.match(bun.uses, /^oven-sh\/setup-bun@[a-f0-9]{40}$/);
+  assert.equal(bun.if, "${{ steps.plan.outputs.manager == 'bun' }}");
+  assert.deepEqual(bun.with, { "bun-version": "${{ steps.plan.outputs.version }}" });
+  assert.ok(steps.indexOf(bun) < steps.findIndex((step) => step.id === "checks"));
+});

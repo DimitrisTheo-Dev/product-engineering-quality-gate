@@ -77,10 +77,12 @@ const checkout = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
 const setupNode = "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1";
 const cacheRestore = "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25";
 const cacheSave = "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25";
+const setupBun = "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6";
 const upload = "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9";
 const versions = {
   [checkout]: "v7.0.1",
   [setupNode]: "v7.1.0",
+  [setupBun]: "v2.2.0",
   [upload]: "v7.0.2",
   [cacheRestore]: "v5.1.0",
   [cacheSave]: "v5.1.0",
@@ -142,6 +144,13 @@ const workflow = {
           if: "${{ steps.plan.outputs.key != '' }}",
           uses: cacheRestore,
           with: { key: "${{ steps.plan.outputs.key }}", path: "${{ steps.plan.outputs.path }}" },
+        },
+        {
+          name: "Provision the declared Bun version",
+          id: "bun",
+          if: "${{ steps.plan.outputs.manager == 'bun' }}",
+          uses: setupBun,
+          with: { "bun-version": "${{ steps.plan.outputs.version }}" },
         },
         {
           name: "Install and run quality checks",

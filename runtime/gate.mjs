@@ -72,12 +72,19 @@ export function detectManager(root, pkg = manifest(root), { allowMissing = false
     throw new Error("Pin packageManager to name@x.y.z, optionally with a Corepack integrity hash.");
   const name = locks[found[0]] ?? (declared ? declared[1] : "npm");
   if (declared && declared[1] !== name) throw new Error("packageManager must match the lockfile.");
+  if (name === "bun" && found[0] === "bun.lockb")
+    throw new Error(
+      "Convert bun.lockb with bun install --save-text-lockfile --frozen-lockfile --lockfile-only --ignore-scripts, then remove bun.lockb and commit bun.lock.",
+    );
   if (name !== "npm" && !declared) throw new Error(`Pin packageManager: ${name}@x.y.z.`);
   const version = declared ? declared[2] : undefined;
   const hash = declared ? declared[3] : undefined;
   if (hash && hash.split(".")[1].length !== Number(hash.split(".")[0].slice(3)) / 4)
     throw new Error("packageManager integrity hash has the wrong length.");
-  if (name === "bun") throw new Error("Bun requires the v2 Bun adapter.");
+  if (name === "bun") {
+    if (!version || hash || !/^\d+\.\d+\.\d+$/.test(version))
+      throw new Error("Pin Bun to packageManager: bun@x.y.z.");
+  }
   if (name === "yarn" && version && !version.startsWith("1.") && !hash && version !== "4.18.1")
     throw new Error("Add a +sha224 or +sha512 integrity suffix to the Yarn packageManager pin.");
   if (
@@ -394,6 +401,12 @@ export function installArgs(/** @type {Manager} */ manager, update = false) {
       "--no-audit",
       "--no-fund",
     ];
+  if (manager.name === "bun")
+    return [
+      "install",
+      "--ignore-scripts",
+      ...(update ? ["--lockfile-only"] : ["--frozen-lockfile"]),
+    ];
   if (manager.name === "pnpm")
     return [
       "install",
@@ -419,6 +432,19 @@ export async function resolveManager(
   npmVersion = /** @type {string | undefined} */ (undefined),
 ) {
   const trusted = dirname(process.execPath);
+  if (manager.name === "bun") {
+    let version;
+    try {
+      version = await run("bun", ["--version"], trusted, { capture: true, signal });
+    } catch (error) {
+      throw new Error(`Provision Bun ${manager.version} before running the gate or onboarding.`, {
+        cause: error,
+      });
+    }
+    if (version !== manager.version)
+      throw new Error(`Expected Bun ${manager.version}, found ${version}.`);
+    return { command: "bun", prefix: [], version, env: {} };
+  }
   const env =
     manager.name === "yarn"
       ? { YARN_IGNORE_PATH: "1" }
@@ -487,6 +513,8 @@ export function cacheConfiguration(manager, parent) {
       };
     case "pnpm":
       return { ...cache, path, args: ["--store-dir", path] };
+    case "bun":
+      return { ...cache, path, args: ["--cache-dir", path] };
     case "yarn":
       return {
         ...cache,
