@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { availableParallelism, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 
 const runtime = fileURLToPath(new URL("../runtime/gate.mjs", import.meta.url));
 const checks = [
@@ -305,4 +306,55 @@ test("cache keys change with the lock and point only at the gate-controlled down
   assert.equal(first.path, join(parent, "quality-gate-downloads/npm/_cacache"));
   writeFileSync(join(root, "package-lock.json"), '{"lockfileVersion":3}');
   assert.notEqual((await planDependencyCache(root, parent)).key, first.key);
+});
+
+test("listed tools reject catalog and workspace indirection", (t) => {
+  for (const spec of ["catalog:", "workspace:1.2.3"])
+    assert.match(
+      gate(fixture(t, { tools: ["@example/tool"] }, {}, { "@example/tool": spec })).stderr,
+      /exact dependency version/,
+    );
+});
+
+test("signal sent to the gate reaches the running script and still yields failure evidence", async (t) => {
+  const root = fixture(t, {}, { test: "node wait-for-stop.cjs" });
+  const ready = join(root, "ready");
+  writeFileSync(
+    join(root, "wait-for-stop.cjs"),
+    `
+    const fs = require("node:fs");
+    process.on("SIGTERM", () => {
+      fs.writeFileSync("stopped", "received");
+      process.exit(0);
+    });
+    fs.writeFileSync("ready", "started");
+    setInterval(() => {}, 100);
+  `,
+  );
+  const child = spawn(process.execPath, [runtime, "--no-install"], {
+    cwd: root,
+    stdio: "ignore",
+    env: { ...process.env, QG_OPTIONS: "{}", GITHUB_WORKSPACE: root, GITHUB_STEP_SUMMARY: "" },
+  });
+  t.after(() => child.kill("SIGKILL"));
+  const result = new Promise((done) => child.once("close", done));
+  for (let index = 0; index < 200 && !existsSync(ready) && child.exitCode === null; index++)
+    await delay(25);
+  assert.ok(existsSync(ready), "script never reached its ready marker");
+  child.kill("SIGTERM");
+  assert.equal(await result, 1);
+  assert.equal(readFileSync(join(root, "stopped"), "utf8"), "received");
+  const report = JSON.parse(readFileSync(join(root, ".quality-gate/report.json"), "utf8"));
+  assert.equal(report.passed, false);
+  assert.match(report.checks.find((row) => row.name === "Tests").detail, /terminated/);
+});
+
+test("config rejects shell commands in place of a package script name", (t) => {
+  const root = fixture(t, {
+    checks: [{ ...checks[0], script: "types; touch injected" }, ...checks.slice(1)],
+  });
+  const { report, status } = gate(root);
+  assert.equal(status, 1);
+  assert.match(report.checks[0].detail, /must be a package script name/);
+  assert.equal(existsSync(join(root, "injected")), false);
 });

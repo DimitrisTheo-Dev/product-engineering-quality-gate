@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readFileSync, symlinkSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, symlinkSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -157,4 +157,16 @@ test("Bun requires a pinned version and the committed text lockfile", (t) => {
   assert.equal(detectManager(dir, { packageManager: "bun@1.4.4" }).lockfile, "bun.lock");
   writeFileSync(join(dir, "package-lock.json"), "{}");
   assert.throws(() => detectManager(dir, { packageManager: "bun@1.4.4" }), /exactly one/);
+});
+
+test("browser evidence stays in the checkout and rejects symlinks", async (t) => {
+  const dir = fixture(t);
+  const browser = join(dir, "test-results");
+  mkdirSync(browser);
+  writeFileSync(join(browser, "trace.txt"), "test trace");
+  const { browserEvidence } = await import("../runtime/assert-report.mjs");
+  assert.deepEqual(browserEvidence(dir, "."), { browserResults: "test-results/" });
+  assert.deepEqual(browserEvidence(dir, ".."), {});
+  symlinkSync(join(dir, "package.json"), join(browser, "link.txt"));
+  assert.deepEqual(browserEvidence(dir, "."), {});
 });

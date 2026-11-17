@@ -128,3 +128,53 @@ test("Bun provisioning is pinned, exact and conditional on the manager plan", ()
   assert.deepEqual(bun.with, { "bun-version": "${{ steps.plan.outputs.version }}" });
   assert.ok(steps.indexOf(bun) < steps.findIndex((step) => step.id === "checks"));
 });
+
+test("embedded steps run in a standalone checkout and publish passing and failing verdicts", (t) => {
+  const sandbox = mkdtempSync(join(tmpdir(), "qg-embedded-"));
+  t.after(() => rmSync(sandbox, { recursive: true, force: true }));
+  const checkout = join(sandbox, "consumer");
+  cpSync(new URL("examples/canary/", root), checkout, { recursive: true });
+  const platform = {
+    GITHUB_WORKSPACE: checkout,
+    GITHUB_STEP_SUMMARY: join(sandbox, "summary.md"),
+    RUNNER_TEMP: sandbox,
+  };
+  const steps = workflow("quality-gate").jobs.quality.steps;
+  const run = (id, extra = {}) =>
+    spawnSync("bash", ["-e", "-c", steps.find((step) => step.id === id).run], {
+      cwd: checkout,
+      encoding: "utf8",
+      timeout: 45_000,
+      env: { ...process.env, ...platform, ...extra },
+    });
+  const plan = run("plan", { GITHUB_OUTPUT: join(sandbox, "plan.txt") });
+  assert.equal(plan.status, 0, plan.stderr);
+  const version = readFileSync(join(sandbox, "plan.txt"), "utf8").match(/^version=(.+)$/m)[1];
+  for (const [config, code, outcome] of [
+    ["quality-gate.config.json", 0, "success"],
+    ["failure.config.json", 1, "failure"],
+  ]) {
+    const checks = run("checks", {
+      GITHUB_ACTIONS: "true",
+      QG_OPTIONS: JSON.stringify({ config }),
+      QG_PLANNED_VERSION: version,
+    });
+    assert.equal(checks.status, code, checks.stderr + checks.stdout);
+    const report = JSON.parse(readFileSync(join(checkout, ".quality-gate/report.json"), "utf8"));
+    const release = JSON.parse(readFileSync(new URL("package.json", root), "utf8"));
+    assert.equal(report.version, release.version);
+    if (code) assert.match(checks.stderr, /::error::Build.*Missing package script/);
+    const artifact = join(sandbox, `result-${outcome}.txt`);
+    const verifier = run("verdict", { QG_OUTCOME: outcome, GITHUB_OUTPUT: artifact });
+    assert.equal(verifier.status, 0, verifier.stderr);
+    assert.equal(readFileSync(artifact, "utf8"), `passed=${code === 0}\n`);
+  }
+  const link = run("report_link", { QG_REPORT_URL: "https://example.test/quality-report" });
+  assert.equal(link.status, 0, link.stderr);
+  assert.match(
+    readFileSync(platform.GITHUB_STEP_SUMMARY, "utf8"),
+    /Download the JSON and Markdown report/,
+  );
+  rmSync(join(checkout, ".quality-gate/report.json"));
+  assert.equal(run("verdict", { QG_OUTCOME: "failure" }).status, 1);
+});

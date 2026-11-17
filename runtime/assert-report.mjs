@@ -1,5 +1,5 @@
-import { appendFileSync, lstatSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { appendFileSync, lstatSync, readFileSync, realpathSync, readdirSync } from "node:fs";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export function verifyReport(root, outcome) {
   try {
@@ -27,10 +27,50 @@ export function verifyReport(root, outcome) {
   }
 }
 
+export function browserEvidence(root, requested) {
+  const outputs = {};
+  if (!requested || isAbsolute(requested)) return outputs;
+  try {
+    const checkout = realpathSync(root);
+    const cwd = realpathSync(resolve(checkout, requested));
+    const path = relative(checkout, cwd);
+    if (
+      isAbsolute(path) ||
+      path === ".." ||
+      path.startsWith(`..${sep}`) ||
+      !/^[\w./ -]*$/.test(path)
+    )
+      return outputs;
+    for (const [key, folder] of [
+      ["browserResults", "test-results"],
+      ["browserReport", "playwright-report"],
+    ]) {
+      const dir = join(cwd, folder);
+      if (
+        lstatSync(dir, { throwIfNoEntry: false })?.isDirectory() &&
+        !readdirSync(dir, { recursive: true, withFileTypes: true }).some((entry) =>
+          entry.isSymbolicLink(),
+        )
+      )
+        outputs[key] = join(path || ".", folder) + "/";
+    }
+  } catch {
+    // An unavailable evidence directory leaves the original verdict intact.
+  }
+  return outputs;
+}
+
 export function publishVerdict() {
-  const passed = verifyReport(
-    process.env.GITHUB_WORKSPACE ?? process.cwd(),
-    process.env.QG_OUTCOME,
-  );
-  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `passed=${passed}\n`);
+  const root = process.env.GITHUB_WORKSPACE ?? process.cwd();
+  const passed = verifyReport(root, process.env.QG_OUTCOME);
+  const outputs = { passed };
+  if (!passed && process.env.QG_BROWSER_EVIDENCE === "true")
+    Object.assign(outputs, browserEvidence(root, process.env.QG_WORKING_DIRECTORY));
+  if (process.env.GITHUB_OUTPUT)
+    appendFileSync(
+      process.env.GITHUB_OUTPUT,
+      Object.entries(outputs)
+        .map(([key, value]) => `${key}=${value}\n`)
+        .join(""),
+    );
 }

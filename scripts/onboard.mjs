@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseArgs } from "node:util";
+import { isDeepStrictEqual, parseArgs } from "node:util";
 import {
   defaults,
   detectManager,
@@ -23,7 +23,7 @@ import {
   scriptName,
   validateConfig,
 } from "../runtime/gate.mjs";
-import { addOns, presets } from "./presets.mjs";
+import { addOns, legacyScripts, presets } from "./presets.mjs";
 
 const ownRoot = fileURLToPath(new URL("../", import.meta.url));
 const releaseVersion = JSON.parse(readFileSync(join(ownRoot, "package.json"), "utf8")).version;
@@ -32,10 +32,10 @@ const reference =
 const managedHeader = "# Managed by product-engineering-quality-gate; review and commit locally.";
 const caller = ".github/workflows/product-quality.yml";
 const inputKinds = {
+  "extra-script": ["Existing quality checks", "lint"],
   "typecheck-script": ["Typecheck", "typecheck"],
   "test-script": ["Tests", "test"],
   "build-script": ["Build", "build"],
-  "extra-script": ["Existing quality checks", "lint"],
   "product-script": ["Product behavior", "product"],
   "smoke-script": ["Smoke", "smoke"],
   "e2e-script": ["E2E", "e2e", "deep"],
@@ -221,7 +221,7 @@ export function adoptionPlan(options) {
       if (
         Object.hasOwn(next.scripts, name) &&
         next.scripts[name] !== body &&
-        !(migrated && name === "quality:format" && next.scripts[name] === "oxfmt --check")
+        !(migrated && next.scripts[name] === legacyScripts[name])
       )
         conflicts.push(`Script '${name}' already exists with a different command.`);
       else next.scripts[name] = body;
@@ -262,7 +262,11 @@ export function adoptionPlan(options) {
       input === "test-script" && explicit === "auto" && migrated
         ? choices[input]
         : (explicit ?? choices[input]);
-    if (config.policy.waive.includes(kind) && explicit === undefined) continue;
+    if (
+      config.policy.waive.includes(kind) &&
+      (explicit === undefined || (migrated && options[input] === undefined))
+    )
+      continue;
     if (script === undefined) continue;
     if (
       typeof script !== "string" ||
@@ -282,8 +286,14 @@ export function adoptionPlan(options) {
   }
   const configText = JSON.stringify(config, null, 2) + "\n";
   const originalConfig = existing(configPath)?.toString("utf8");
-  if (originalConfig !== undefined && originalConfig !== configText)
-    conflicts.push(`${relative(root, configPath)} already exists with different content.`);
+  if (originalConfig !== undefined) {
+    try {
+      if (!isDeepStrictEqual(JSON.parse(originalConfig), config))
+        conflicts.push(`${relative(root, configPath)} already exists with different content.`);
+    } catch {
+      conflicts.push(`${relative(root, configPath)} contains invalid JSON.`);
+    }
+  }
   const branch =
     migrated?.branch ??
     git(root, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD").replace(
@@ -311,7 +321,7 @@ export function adoptionPlan(options) {
   const dependencyChanges =
     JSON.stringify(next.devDependencies) !== JSON.stringify(pkg.devDependencies);
   if (dependencyChanges || !existsSync(lockPath)) change(lockPath, null);
-  change(configPath, configText);
+  if (originalConfig === undefined) change(configPath, configText);
   change(workflowPath, workflow);
   return {
     root,

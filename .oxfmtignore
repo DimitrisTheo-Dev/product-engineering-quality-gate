@@ -4,3 +4,4 @@ package-lock.json
 examples/react-ts/package-lock.json
 examples/node-ts/package-lock.json
 examples/bench-vite-react/package-lock.json
+examples/canary/package-lock.json

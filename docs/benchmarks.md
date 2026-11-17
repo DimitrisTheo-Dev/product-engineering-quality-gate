@@ -176,7 +176,7 @@ A paired medium-fixture probe on an existing locked install alternated five seri
 | Opt-in Node noop (Smoke)                     |   57.85 (53.09–127.56) |
 | Opt-in Node noop minus bare Node (Smoke)     |    1.27 (-28.51–34.56) |
 
-Docs-only warm run: 2751.77 ms; Smoke SKIPPED (no-matching-changes).
+Docs-only warm run took 2751.77 ms. Smoke was SKIPPED (`no-matching-changes`).
 
 ## Browser setup study
 
@@ -189,7 +189,7 @@ Playwright 1.65.0 installed Chrome for Testing 158.0.8127.18 from a loopback mir
 
 The benchmark workflow uses the headless shell because its smoke uses the default headless browser. The Playwright onboarding add-on keeps full Chromium for consumers with headed or channel-specific tests. The reusable workflow does not save browser caches. Hosted measurements of browser archive transfer are still pending. [Playwright browser installation](https://playwright.dev/docs/browsers#chromium-headless-shell).
 
-## Implementation plan for v2
+## Phase 0 implementation plan
 
 1. **Make the verdict and evidence explicit.** Add the strict package-local config and schema, generic setup and checks, and onboarding presets. Keep configuration success as metadata so PASS rows correspond to command exits. Give a reported policy waiver its own machine-readable `waived` reason. Preserve install and setup failures, write the report before exit, and assert in an embedded workflow step that its verdict agrees with the checks step. Add focused regressions for each review finding before changing behavior or record the decision where the finding is a design choice.
 2. **Resolve managers once and measure download caching first.** Share detection and locked-install arguments across the runtime, onboarding, and verification. Verify the selected manager and its integrity before consumer scripts run. Key the download store by OS, architecture, actual manager version, Node major and lockfile hash. Restore in PR context. Save only on a default-branch push after an exact-key miss and a successful install. GitHub scopes PR-written caches to the PR merge ref. Measure cache transfer before claiming a hosted speedup. [GitHub cache scoping](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#restrictions-for-accessing-a-cache).

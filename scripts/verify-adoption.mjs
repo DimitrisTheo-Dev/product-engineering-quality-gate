@@ -51,10 +51,11 @@ function snapshot(dir) {
     );
 }
 
-function check(dir, options, expected = 0) {
+function check(dir, options, expected = 0, install = true) {
+  const args = [join(root, "runtime/gate.mjs"), ...(install ? [] : ["--no-install"])];
   const output = command(
     process.execPath,
-    [join(root, "runtime/gate.mjs")],
+    args,
     dir,
     {
       GITHUB_WORKSPACE: dir,
@@ -166,7 +167,7 @@ try {
       const pkg = JSON.parse(readFileSync(manifest, "utf8"));
       pkg.scripts.test = 'node -e "process.exit(7)"';
       writeJson(manifest, pkg);
-      const { report: broken } = check(dir, gateOptions, 1);
+      const { report: broken } = check(dir, gateOptions, 1, false);
       assert.equal(broken.checks.find(({ name }) => name === "Tests").status, "FAIL");
     }
     if (preset === "biome") {
@@ -179,8 +180,12 @@ try {
       ];
       for (const [body, diagnostic] of probes) {
         writeFileSync(probe, body);
-        const { output, report: result } = check(dir, gateOptions, 1);
-        assert.equal(result.checks.find((row) => row.name === "Biome").status, "FAIL");
+        const { output, report: result } = check(dir, gateOptions, 1, false);
+        assert.equal(
+          result.checks.find((row) => row.name === "Biome").status,
+          "FAIL",
+          output.stdout + output.stderr,
+        );
         assert.match(output.stdout + output.stderr, /::error/);
         assert.match(output.stdout + output.stderr, diagnostic);
       }

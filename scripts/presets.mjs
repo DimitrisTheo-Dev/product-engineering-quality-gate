@@ -1,3 +1,12 @@
+const fallowChecks = [
+  { command: "dead-code", name: "Fallow dead code", parseErrors: true },
+  { command: "dupes", name: "Fallow duplication", parseErrors: false },
+  { command: "health", name: "Fallow complexity", parseErrors: true },
+  { command: "architecture", name: "Fallow architecture", parseErrors: true },
+];
+
+export const legacyScripts = { "quality:format": "oxfmt --check" };
+
 export const presets = {
   oxc: {
     dependencies: { oxfmt: "0.77.0", oxlint: "1.92.0" },
@@ -28,11 +37,18 @@ export const addOns = {
   },
   fallow: {
     dependencies: { fallow: "3.41.0" },
-    scripts: {
-      "quality:fallow":
-        "fallow dead-code --fail-on-issues --fail-on-parse-error && fallow dupes --fail-on-issues && fallow health --fail-on-issues --fail-on-parse-error && fallow architecture --fail-on-issues --fail-on-parse-error",
-    },
-    checks: [{ name: "Fallow", kind: "analysis", script: "quality:fallow", tier: "deep" }],
+    scripts: Object.fromEntries(
+      fallowChecks.map(({ command, parseErrors }) => [
+        `quality:fallow:${command}`,
+        `FALLOW_TELEMETRY_DISABLED=1 fallow ${command} --fail-on-issues${parseErrors ? " --fail-on-parse-error" : ""} --format github-annotations`,
+      ]),
+    ),
+    checks: fallowChecks.map(({ name, command }) => ({
+      name,
+      kind: "analysis",
+      script: `quality:fallow:${command}`,
+      tier: "deep",
+    })),
   },
   playwright: {
     dependencies: { "@playwright/test": "1.65.0" },

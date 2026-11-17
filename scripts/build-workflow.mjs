@@ -177,7 +177,11 @@ const workflow = {
           id: "verdict",
           if: "${{ !cancelled() }}",
           shell: "bash",
-          env: { QG_OUTCOME: "${{ steps.checks.outcome }}" },
+          env: {
+            QG_OUTCOME: "${{ steps.checks.outcome }}",
+            QG_BROWSER_EVIDENCE: "${{ inputs.browser-evidence }}",
+            QG_WORKING_DIRECTORY: "${{ inputs.working-directory }}",
+          },
           run: script(reportAssertion, "QUALITY_GATE_ASSERT", "publishVerdict();"),
         },
         {
@@ -194,6 +198,18 @@ const workflow = {
           },
         },
         {
+          name: "Link the uploaded report",
+          id: "report_link",
+          if: "${{ !cancelled() && steps.report.outputs.artifact-url != '' }}",
+          shell: "bash",
+          env: { QG_REPORT_URL: "${{ steps.report.outputs.artifact-url }}" },
+          run: script(
+            'import { appendFileSync } from "node:fs";',
+            "QUALITY_GATE_REPORT_LINK",
+            String.raw`appendFileSync(process.env.GITHUB_STEP_SUMMARY, "\n[Download the JSON and Markdown report](" + process.env.QG_REPORT_URL + ")\n");`,
+          ),
+        },
+        {
           name: "Save dependency downloads on default-branch cache miss",
           id: "save",
           if: "${{ success() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.plan.outputs.key != '' && steps.restore.outputs.cache-hit != 'true' }}",
@@ -202,11 +218,11 @@ const workflow = {
         },
         {
           name: "Upload opted-in browser failure evidence",
-          if: "${{ failure() && inputs.browser-evidence }}",
+          if: "${{ failure() && (steps.verdict.outputs.browserResults != '' || steps.verdict.outputs.browserReport != '') }}",
           uses: upload,
           with: {
             name: "${{ inputs.report-name }}-browser-failure",
-            path: "${{ inputs.working-directory }}/test-results/\n${{ inputs.working-directory }}/playwright-report/",
+            path: "${{ steps.verdict.outputs.browserResults }}\n${{ steps.verdict.outputs.browserReport }}",
             "include-hidden-files": false,
             "if-no-files-found": "warn",
             "retention-days": 3,

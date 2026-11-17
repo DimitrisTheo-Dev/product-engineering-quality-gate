@@ -569,7 +569,7 @@ function oneLine(value) {
   }).join("");
 }
 function codeCell(value) {
-  const text = oneLine(value).replaceAll("|", "\\|");
+  const text = oneLine(value).replaceAll("\\", "\\\\").replaceAll("|", "\\|");
   const length = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length)) + 1;
   const fence = "`".repeat(length);
   return `${fence} ${text || " "} ${fence}`;

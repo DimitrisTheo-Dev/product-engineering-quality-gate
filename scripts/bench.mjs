@@ -207,7 +207,7 @@ try {
     for (const [name, values] of launches) console.log(`| ${name} | ${describe(values)} |`);
     if (docsOnlyMs !== undefined)
       console.log(
-        `\nDocs-only warm run: ${docsOnlyMs.toFixed(2)} ms; Smoke SKIPPED (no-matching-changes).`,
+        `\nDocs-only warm run took ${docsOnlyMs.toFixed(2)} ms. Smoke was SKIPPED (no-matching-changes).`,
       );
   }
 } finally {

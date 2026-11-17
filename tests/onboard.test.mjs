@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  chmodSync,
   mkdtempSync,
   cpSync,
   mkdirSync,
@@ -11,7 +12,7 @@ import {
   rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { adoptionPlan } from "../scripts/onboard.mjs";
@@ -179,4 +180,33 @@ test("migration records an explicit test script and upgrade only rewrites the pi
   await applyPlan(upgrade);
   assert.equal(readFileSync(path, "utf8"), migrated.replace(sha, pin));
   assert.deepEqual(adoptionPlan({ repo: dir, ref: pin, upgrade: true }).changes, []);
+});
+
+test("failed lock update rolls back a changed manifest and lockfile byte-for-byte", (t) => {
+  const dir = fixture(t);
+  const bin = join(dir, "test-bin");
+  mkdirSync(bin);
+  const npm = join(bin, "npm");
+  writeFileSync(
+    npm,
+    '#!/bin/sh\nif [ "$1" = "--version" ]; then echo 11.9.0; exit 0; fi\nprintf bad > package-lock.json\nexit 7\n',
+  );
+  chmodSync(npm, 0o755);
+  const before = snapshot(dir);
+  const result = spawnSync(
+    process.execPath,
+    [
+      join(root, "scripts/onboard.mjs"),
+      "--repo",
+      dir,
+      "--ref",
+      sha,
+      "--preset",
+      "biome",
+      "--apply",
+    ],
+    { encoding: "utf8", env: { ...process.env, PATH: [bin, process.env.PATH].join(delimiter) } },
+  );
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.deepEqual(snapshot(dir), before);
 });
