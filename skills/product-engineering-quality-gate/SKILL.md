@@ -1,17 +1,17 @@
 ---
 name: product-engineering-quality-gate
-description: Verify focused changes in repositories adopted into product-engineering-quality-gate, and diagnose its CI failures. Use when the caller workflow or quality scripts exist, or when explicitly invoked.
+description: Verify focused changes in JavaScript or TypeScript repositories using product-engineering-quality-gate v2 and diagnose its CI failures.
 ---
 
-Inspect repository instructions, git status, package manager, scripts, and `.github/workflows/product-quality.yml` before changing files. Preserve unrelated work and existing formatting/linting configurations. This skill grants no permission to enroll, commit, publish, or change repository policies.
+# Product engineering quality gate
 
-For adopted repositories:
+Use this skill to reproduce and diagnose the checks a consumer repository selected for its v2 quality gate. Read its repository instructions, caller workflow, lockfile, package manifests, and `quality-gate.config.json` before running commands.
 
-1. Make the focused change needed for the user's outcome. Use the repository's locked dependencies. Do not fetch fallback lint/format executables with `npx`.
-2. Run local `quality:format` and `quality:lint` scripts, then the caller's selected typecheck, tests, and build scripts. Retain existing ESLint or other checks selected by `extra-script`. For a monorepo, inspect root and package scripts and the caller matrix.
-3. Run React Doctor only when enabled for a React package. Run Fallow only when enabled and relevant; understand configured baselines and entry points before changing code. Use the local pinned versions and the caller's documented arguments.
-4. Verify the main user outcome with a behavior test, smoke test, or direct reproduction. Static checks alone do not establish the outcome. Keep project-specific behavior tests in the project. Synthetic fixtures establish only their fixture contract; never describe them as live provider evidence.
-5. Fix relevant defects with at most two focused repair-and-rerun cycles per blocking issue. Do not restructure unrelated code to satisfy complexity or duplication metrics. If progress stops, report the reproduction, diagnostics, attempted fixes, and the decision needed from the user.
-6. Report commands actually run, outcomes, skipped/unconfigured/unavailable checks, limitations, and remaining risks. A failed required check remains a failure after report generation.
+1. Follow the caller's `working-directory` and `config` inputs to find the selected package and config. In a matrix, inspect each affected package. The checkout root owns the lockfile and dependency installation.
+2. Read `setup`, `tools`, `checks`, and `policy.waive` in the config. Run configured setup in order, then each eligible package script using the repository's locked package manager. Check exact dependency pins under `tools` and avoid fetching fallback executables. The workflow disables dependency lifecycle hooks during installation.
+3. Follow CI eligibility. Include checks with `tier: deep` when the caller sets `deep: true`; run them locally when they directly exercise the change. Explain skips caused by tiers, waivers, prerequisites, or path selection. If setup fails, resolve that failure before evaluating downstream checks.
+4. Exercise the changed user behavior with an existing test, smoke check, or direct reproduction. Use synthetic results as fixture evidence. Review browser artifacts for sensitive content before enabling `browser-evidence`.
+5. Diagnose failures from the command, exit status, and uploaded JSON report. Fix relevant defects and rerun affected checks. Preserve unrelated product scripts, formatting and linting rules, and waivers.
+6. Report a table with `Check | Status | Evidence`. Give the command and exit result for executed checks, and the reason for skips. Report the user behavior you observed and any limits of the evidence.
 
-Use [the command reference](references/checks.md) when translating workflow options into local commands. Read the repository's own configuration before using its examples. Provider-backed evaluation and AI review require separate explicit opt-in; never pass provider credentials to PR code.
+Use [the command reference](references/checks.md) for v2 inputs and local commands.

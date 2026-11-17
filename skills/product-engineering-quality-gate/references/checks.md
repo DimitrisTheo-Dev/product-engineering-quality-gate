@@ -1,16 +1,19 @@
 # Local command contract
 
-Use the detected package manager to run package scripts: `npm run NAME`, `pnpm run NAME`, or `yarn run NAME`. Read `packageManager` and the lockfile; do not substitute a manager. In an adopted root, `quality:format` runs Oxfmt check mode and `quality:lint` runs Oxlint with warnings blocking.
+The checkout root owns the lockfile. The package selected by `working-directory` owns its `package.json` and `quality-gate.config.json`. The default config filename can be overridden with `config`. The caller should pin the reusable workflow to a reviewed commit SHA.
 
-Required workflow commands are local Oxfmt `--check`, local Oxlint `--deny-warnings --ignore-pattern '**/node_modules/**'`, selected typecheck (default `typecheck`), selected tests (`test:ci` then `test`), and selected build (default `build`). A test script with watch mode needs an explicit CI alternative.
+| Workflow input          | Purpose                                        |
+| ----------------------- | ---------------------------------------------- |
+| `working-directory`     | Package path relative to the checkout root.    |
+| `config`                | Config path relative to the selected package.  |
+| `deep`                  | Enable checks declared with `tier: deep`.      |
+| `node-version`          | Node version used by the workflow.             |
+| `check-timeout-seconds` | Per-script timeout.                            |
+| `report-name`           | Artifact name, unique within a run.            |
+| `browser-evidence`      | Opt in to uploading browser failure artifacts. |
 
-Optional commands from the caller:
+Use the existing package scripts. For example, a check with `"script": "test:ci"` runs as `pnpm run test:ci` in a pnpm consumer. Formatter, lint, product, smoke, browser, and security checks are also package scripts when the config declares them. A check that opts into `runner: "node"` can use `node --run` with npm when the script has no pre/post hooks. Use the report to confirm what ran.
 
-- `extra-script`, `product-script`, `smoke-script`: run when selected.
-- React Doctor: `react-doctor . --yes --no-score --no-supply-chain --blocking error`; use only on React packages. Its separate license applies.
-- Fallow, deep runs: `fallow dead-code --fail-on-issues --fail-on-parse-error`, `fallow dupes --fail-on-issues`, `fallow health --fail-on-issues --fail-on-parse-error`, `fallow architecture --fail-on-issues --fail-on-parse-error`.
-- `e2e-script`, `security-script`: deep runs only.
+Check the artifact named by `report-name` for the gate's verdict, selected script bodies, tool versions, timings and skip reasons. A skipped row with `waived` records an explicit policy decision. A failed prerequisite can cause downstream rows to be skipped while the overall verdict remains failed.
 
-Prefer existing project scripts over recreating test logic. If native dependencies need setup, inspect the explicit `extra-script`; dependency lifecycle hooks are disabled during CI installation. The normal gate never runs paid AI work.
-
-See the central repository's [configuration](https://github.com/DimitrisTheo-Dev/product-engineering-quality-gate/blob/main/docs/configuration.md) for updated inputs. Consumer workflows should use an immutable release SHA.
+[Configuration and schema](https://github.com/DimitrisTheo-Dev/product-engineering-quality-gate/blob/main/docs/configuration.md)
