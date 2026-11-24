@@ -95,7 +95,7 @@ The instrumented v1 baseline and v2 ran five independent cold and warm pairs on 
 | Cold gate                                        |       6.78 |       8.33 |         10.66 |         11.66 |
 | Warm gate                                        |       2.23 |       2.26 |          4.54 |          5.05 |
 | No-op overhead by scripted check, ms             |    113–121 |    119–159 |       107–114 |       108–208 |
-| Opt-in Node no-op overhead by scripted check, ms |          — |       3–14 |             — |      −0.2–4.2 |
+| Opt-in Node no-op overhead by scripted check, ms |        n/a |       3–14 |           n/a |      −0.2–4.2 |
 
 The v2 medium warm install was 4.8× faster than its cold install. The standalone cold run was slower than v1 in this sample. The registry timings varied, and v2 runs Oxfmt and Oxlint through package scripts and observes the actual npm version. Default launch overhead misses the 50 ms target. Preserving npm hook and environment behavior keeps npm as the default. Safe, opted-in Node scripts met the target in both fixtures. Negative paired deltas reflect measurement variation. [Node run semantics](https://nodejs.org/download/release/v24.22.2/docs/api/cli.html#--run).
 

@@ -6,6 +6,10 @@
 - Record script bodies, installed tool versions, timings, and skip reasons in schema v2. Verify the report against the job outcome.
 - Cache package downloads under a default-branch write policy. Add Git path selection, explicit concurrent batches, and opt-in Node script launches.
 - Support Bun text lockfiles and exact toolchain pins. Add workspace adoption, v1 migration, pin-only upgrades, and cross-repository canaries.
+- Put the pinned package manager on PATH for package scripts, so a script that calls `pnpm` or `yarn` again uses the same version. Found by the dtheo-ui pilot.
+- Onboarding adds `.quality-gate/` to `.gitignore` and keeps added dev dependencies sorted, so the Oxc preset passes its own format check. Document local runs.
+- Name the fix when Corepack is missing (Node 25 and later). Generate the same workflow on macOS and Linux.
+- **Breaking from v1:** inputs move into `quality-gate.config.json`, and the `NOT CONFIGURED` status is replaced by `SKIPPED` rows with a reason. See [MIGRATION.md](MIGRATION.md).
 
 ## v1.0.1
 
