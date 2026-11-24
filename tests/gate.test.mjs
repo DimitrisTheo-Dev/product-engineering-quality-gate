@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { detectManager, failed } from "../runtime/gate.mjs";
+import { detectManager, failed, spawnFailure, writeManagerShim } from "../runtime/gate.mjs";
 import { verifyReport } from "../runtime/assert-report.mjs";
 
 const runtime = fileURLToPath(new URL("../runtime/gate.mjs", import.meta.url));
@@ -169,4 +169,28 @@ test("browser evidence stays in the checkout and rejects symlinks", async (t) =>
   assert.deepEqual(browserEvidence(dir, ".."), {});
   symlinkSync(join(dir, "package.json"), join(browser, "link.txt"));
   assert.deepEqual(browserEvidence(dir, "."), {});
+});
+
+test("a missing Corepack names the fix instead of a bare ENOENT", () => {
+  const missing = Object.assign(new Error("spawn corepack ENOENT"), { code: "ENOENT" });
+  assert.match(spawnFailure("corepack", missing), /npm install --global corepack/);
+  const other = Object.assign(new Error("spawn pnpm ENOENT"), { code: "ENOENT" });
+  assert.equal(spawnFailure("pnpm", other), "spawn pnpm ENOENT. Check executable installation.");
+});
+
+test("package scripts that call the package manager again get the pinned one", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "quality-gate-shim-test-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const entry = join(dir, "fake-pnpm.js");
+  writeFileSync(entry, 'console.log("pinned " + process.argv.slice(2).join(" "));\n');
+  const bin = writeManagerShim(join(dir, "bin"), "pnpm", entry);
+  const result = spawnSync("sh", ["-c", "pnpm -r build"], {
+    encoding: "utf8",
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+  });
+  assert.equal(result.stdout.trim(), "pinned -r build");
+  assert.throws(
+    () => writeManagerShim(join(dir, "bad"), "pnpm", '/tmp/x"; rm -rf /'),
+    /unexpected path/,
+  );
 });

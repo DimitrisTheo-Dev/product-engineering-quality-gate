@@ -56,7 +56,9 @@ function script(source, delimiter, entrypoint) {
 
 function runnerScript(source, delimiter, exported, entrypoint) {
   requireSafeDelimiter(source, delimiter);
-  const embedded = gzipSync(source)
+  const gzipped = gzipSync(source);
+  gzipped[9] = 3; // The gzip header records the build OS; fix it so macOS and Linux generate the same workflow.
+  const embedded = gzipped
     .toString("base64")
     .match(/.{1,120}/g)
     ?.join("\n");

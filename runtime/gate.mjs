@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 import { availableParallelism, homedir } from "node:os";
 import {
   basename,
+  delimiter,
   dirname,
   isAbsolute,
   join,
@@ -43,6 +44,31 @@ const seconds = (ms) => Math.round(ms / 100) / 10;
 const readJson = (path) => JSON.parse(readFileSync(path, "utf8"));
 const manifest = (dir) => readJson(join(dir, "package.json"));
 const message = (error) => (error instanceof Error ? error.message : String(error));
+
+/**
+ * Put the pinned package manager on PATH for package scripts, so a script that calls it again (`pnpm -r build`) runs
+ * the same version instead of whatever the runner has installed. Returns the directory holding the shim.
+ */
+export function writeManagerShim(dir, name, entry, node = process.execPath) {
+  if (!/^[a-z]+$/.test(name) || [entry, node].some((path) => /["$`\n]/.test(path)))
+    throw new Error(`Refusing to write a ${name} shim for an unexpected path.`);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, name), `#!/bin/sh\nexec "${node}" "${entry}" "$@"\n`, { mode: 0o755 });
+  writeFileSync(join(dir, `${name}.cmd`), `@"${node}" "${entry}" %*\r\n`);
+  return dir;
+}
+
+/** Why a command could not start, with the fix when it is a known setup gap. */
+export function spawnFailure(command, error) {
+  if (
+    command === "corepack" &&
+    error instanceof Error &&
+    "code" in error &&
+    error.code === "ENOENT"
+  )
+    return "Corepack is not installed. Node 25 and later no longer include it: run `npm install --global corepack`, or use Node 24.";
+  return `${message(error)}. Check executable installation.`;
+}
 const locks = {
   "package-lock.json": "npm",
   "npm-shrinkwrap.json": "npm",
@@ -368,7 +394,7 @@ export function run(
     child.once("error", (error) => {
       clearTimeout(timer);
       signal?.removeEventListener("abort", abort);
-      reject(new Error(`${message(error)}. Check executable installation.`));
+      reject(new Error(spawnFailure(command, error)));
     });
     child.once("close", async (code, sig) => {
       clearTimeout(timer);
@@ -496,7 +522,13 @@ export async function resolveManager(
     Array.isArray(metadata.bin) ? `${name}.js` : metadata.bin[name],
     "Package manager entrypoint",
   );
-  return { command: process.execPath, prefix: [bin], version, env };
+  const shims = writeManagerShim(join(home, "quality-gate-bin", `${name}@${version}`), name, bin);
+  return {
+    command: process.execPath,
+    prefix: [bin],
+    version,
+    env: { ...env, PATH: `${shims}${delimiter}${process.env.PATH ?? ""}` },
+  };
 }
 
 export function cacheConfiguration(manager, parent) {
@@ -532,7 +564,8 @@ export function cacheConfiguration(manager, parent) {
 export async function planDependencyCache(root, parent) {
   const selected = detectManager(root);
   const path = realpathSync(join(root, selected.lockfile));
-  if (!inside(root, path)) throw new Error("The lockfile symlink leaves the checkout.");
+  if (!inside(realpathSync(root), path))
+    throw new Error("The lockfile symlink leaves the checkout.");
   const version = selected.version ?? (await resolveManager(selected)).version;
   const store = cacheConfiguration(selected, parent);
   const digest = createHash("sha256").update(readFileSync(path)).digest("hex");
