@@ -11,7 +11,7 @@ export const presets = {
   oxc: {
     dependencies: { oxfmt: "0.77.0", oxlint: "1.92.0" },
     scripts: {
-      "quality:format": "oxfmt --check . '!**/quality-gate.config.json'",
+      "quality:format": "oxfmt --check . '!**/quality-gate.config.json' '!.quality-gate/**'",
       "quality:lint": "oxlint --deny-warnings --ignore-pattern '**/node_modules/**'",
     },
     checks: [

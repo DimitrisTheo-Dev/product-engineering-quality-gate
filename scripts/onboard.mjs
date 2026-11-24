@@ -315,6 +315,14 @@ export function adoptionPlan(options) {
   );
   if (old && old !== workflow && !migrated)
     conflicts.push(`${caller} differs. Use --upgrade to change only a v2 pin.`);
+  // Formatters such as Oxfmt sort package.json, so keep added dependencies in key order.
+  if (
+    next.devDependencies &&
+    JSON.stringify(next.devDependencies) !== JSON.stringify(pkg.devDependencies)
+  )
+    next.devDependencies = Object.fromEntries(
+      Object.entries(next.devDependencies).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+    );
   const indent = original.match(/\n([ \t]+)"/)?.[1] ?? "  ";
   if (JSON.stringify(next) !== JSON.stringify(pkg))
     change(pkgPath, JSON.stringify(next, null, indent) + "\n");
@@ -323,6 +331,14 @@ export function adoptionPlan(options) {
   if (dependencyChanges || !existsSync(lockPath)) change(lockPath, null);
   if (originalConfig === undefined) change(configPath, configText);
   change(workflowPath, workflow);
+  // Every run writes its report to .quality-gate/; keep it out of Git and out of format checks.
+  const ignorePath = join(root, ".gitignore");
+  const ignored = existsSync(ignorePath) ? readFileSync(ignorePath, "utf8") : "";
+  if (!/^\/?\.quality-gate\/?\s*$/m.test(ignored))
+    change(
+      ignorePath,
+      `${ignored}${ignored && !ignored.endsWith("\n") ? "\n" : ""}.quality-gate/\n`,
+    );
   return {
     root,
     cwd,
