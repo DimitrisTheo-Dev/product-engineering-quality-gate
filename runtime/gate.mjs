@@ -8,6 +8,7 @@ import {
   mkdirSync,
   readFileSync,
   realpathSync,
+  renameSync,
   writeFileSync,
   appendFileSync,
 } from "node:fs";
@@ -49,12 +50,22 @@ const message = (error) => (error instanceof Error ? error.message : String(erro
  * Put the pinned package manager on PATH for package scripts, so a script that calls it again (`pnpm -r build`) runs
  * the same version instead of whatever the runner has installed. Returns the directory holding the shim.
  */
-export function writeManagerShim(dir, name, entry, node = process.execPath) {
-  if (!/^[a-z]+$/.test(name) || [entry, node].some((path) => /["$`\n]/.test(path)))
-    throw new Error(`Refusing to write a ${name} shim for an unexpected path.`);
+export function writeManagerShim(dir, bins, node = process.execPath) {
+  const quote = (path) => `'${path.replaceAll("'", "'\\''")}'`;
+  // Write beside the target and rename, so a concurrent run never executes a half-written shim.
+  const write = (file, text, mode) => {
+    const temporary = `${file}.${process.pid}.tmp`;
+    writeFileSync(temporary, text, { mode });
+    renameSync(temporary, file);
+  };
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, name), `#!/bin/sh\nexec "${node}" "${entry}" "$@"\n`, { mode: 0o755 });
-  writeFileSync(join(dir, `${name}.cmd`), `@"${node}" "${entry}" %*\r\n`);
+  for (const [name, entry] of Object.entries(bins)) {
+    if (!/^[a-z][a-z0-9-]*$/.test(name) || /\n/.test(entry + node))
+      throw new Error(`Refusing to write a shim for ${name}.`);
+    write(join(dir, name), `#!/bin/sh\nexec ${quote(node)} ${quote(entry)} "$@"\n`, 0o755);
+    if (!/["%]/.test(entry + node))
+      write(join(dir, `${name}.cmd`), `@"${node}" "${entry}" %*\r\n`, 0o644);
+  }
   return dir;
 }
 
@@ -522,12 +533,20 @@ export async function resolveManager(
     Array.isArray(metadata.bin) ? `${name}.js` : metadata.bin[name],
     "Package manager entrypoint",
   );
-  const shims = writeManagerShim(join(home, "quality-gate-bin", `${name}@${version}`), name, bin);
+  const bins = Array.isArray(metadata.bin)
+    ? { [name]: bin }
+    : Object.fromEntries(
+        Object.entries(metadata.bin).map(([command, path]) => [
+          command,
+          packagePath(dir, path, "Package manager entrypoint"),
+        ]),
+      );
+  const shims = writeManagerShim(join(home, "quality-gate-bin", `${name}@${version}`), bins);
   return {
     command: process.execPath,
     prefix: [bin],
     version,
-    env: { ...env, PATH: `${shims}${delimiter}${process.env.PATH ?? ""}` },
+    env: { ...env, PATH: [shims, process.env.PATH].filter(Boolean).join(delimiter) },
   };
 }
 

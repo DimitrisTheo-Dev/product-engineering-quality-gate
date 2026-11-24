@@ -181,16 +181,17 @@ test("a missing Corepack names the fix instead of a bare ENOENT", () => {
 test("package scripts that call the package manager again get the pinned one", (t) => {
   const dir = mkdtempSync(join(tmpdir(), "quality-gate-shim-test-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const entry = join(dir, "fake-pnpm.js");
+  const odd = join(dir, "it's $HOME");
+  mkdirSync(odd);
+  const entry = join(odd, "fake-pnpm.js");
   writeFileSync(entry, 'console.log("pinned " + process.argv.slice(2).join(" "));\n');
-  const bin = writeManagerShim(join(dir, "bin"), "pnpm", entry);
-  const result = spawnSync("sh", ["-c", "pnpm -r build"], {
-    encoding: "utf8",
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
-  });
-  assert.equal(result.stdout.trim(), "pinned -r build");
-  assert.throws(
-    () => writeManagerShim(join(dir, "bad"), "pnpm", '/tmp/x"; rm -rf /'),
-    /unexpected path/,
-  );
+  const bin = writeManagerShim(join(dir, "bin"), { pnpm: entry, pnpx: entry });
+  for (const command of ["pnpm -r build", "pnpx tool"]) {
+    const result = spawnSync("sh", ["-c", command], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+    });
+    assert.equal(result.stdout.trim(), `pinned ${command.split(" ").slice(1).join(" ")}`);
+  }
+  assert.throws(() => writeManagerShim(join(dir, "bad"), { "../pnpm": entry }), /Refusing/);
 });

@@ -21,7 +21,10 @@ export const presets = {
   },
   biome: {
     dependencies: { "@biomejs/biome": "2.6.8" },
-    scripts: { "quality:static": "biome ci --reporter=github" },
+    scripts: {
+      "quality:static":
+        "biome ci --reporter=github --vcs-enabled=true --vcs-client-kind=git --vcs-use-ignore-file=true",
+    },
     checks: [{ name: "Biome", kind: "lint", script: "quality:static", concurrent: true }],
   },
   existing: { dependencies: {}, scripts: {}, checks: [] },

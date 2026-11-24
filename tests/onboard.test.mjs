@@ -210,3 +210,86 @@ test("failed lock update rolls back a changed manifest and lockfile byte-for-byt
   assert.equal(result.status, 1, result.stdout + result.stderr);
   assert.deepEqual(snapshot(dir), before);
 });
+
+function bare(t, pkg, files = {}) {
+  const dir = mkdtempSync(join(tmpdir(), "quality-gate-onboard-bare-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  spawnSync("git", ["init", "-b", "main"], { cwd: dir });
+  writeFileSync(join(dir, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
+  writeFileSync(
+    join(dir, "package-lock.json"),
+    JSON.stringify({ name: pkg.name, lockfileVersion: 3, packages: {} }, null, 2) + "\n",
+  );
+  for (const [path, text] of Object.entries(files)) writeFileSync(join(dir, path), text);
+  return dir;
+}
+
+const scripts = { build: "tsc", test: "node --test", typecheck: "tsc --noEmit" };
+
+test("onboarding ignores gate reports once, in the file's own line endings", (t) => {
+  const cases = [
+    [null, ".quality-gate/\n"],
+    ["node_modules", "node_modules\n.quality-gate/\n"],
+    ["node_modules\r\n", "node_modules\r\n.quality-gate/\r\n"],
+    ["/.quality-gate\n", undefined],
+    [".quality-gate/**\n", undefined],
+    ["!.quality-gate/\n", undefined],
+  ];
+  for (const [before, after] of cases) {
+    const dir = bare(
+      t,
+      { name: "fixture", scripts },
+      before === null ? {} : { ".gitignore": before },
+    );
+    const plan = adoptionPlan({ repo: dir, ref: sha });
+    assert.equal(
+      plan.edits.get(join(plan.root, ".gitignore"))?.after,
+      after,
+      JSON.stringify(before),
+    );
+  }
+  const linked = bare(t, { name: "fixture", scripts }, { "real-ignore": "node_modules\n" });
+  symlinkSync("real-ignore", join(linked, ".gitignore"));
+  const plan = adoptionPlan({ repo: linked, ref: sha });
+  assert.equal(plan.edits.has(join(plan.root, ".gitignore")), false);
+  assert.ok(plan.warnings.some((warning) => warning.includes(".gitignore is a symlink")));
+});
+
+test("added dev dependencies land where Oxfmt expects them", (t) => {
+  const oxfmt = join(root, "node_modules/.bin/oxfmt");
+  for (const pkg of [
+    { name: "fixture", private: true, scripts, engines: { node: ">=24" } },
+    {
+      name: "fixture",
+      scripts,
+      dependencies: { "left-pad": "1.3.0" },
+      packageManager: "npm@11.19.1",
+    },
+    {
+      name: "fixture",
+      scripts,
+      devDependencies: { typescript: "6.0.3" },
+      engines: { node: ">=24" },
+    },
+  ]) {
+    const dir = bare(t, pkg);
+    const plan = adoptionPlan({ repo: dir, ref: sha });
+    const written = join(dir, "written.package.json");
+    writeFileSync(written, plan.packageText);
+    const keys = Object.keys(JSON.parse(plan.packageText.toString()));
+    assert.ok(
+      keys.indexOf("devDependencies") <
+        Math.max(keys.indexOf("engines"), keys.indexOf("packageManager")),
+    );
+    const devKeys = Object.keys(JSON.parse(plan.packageText.toString()).devDependencies);
+    assert.deepEqual(devKeys, [...devKeys].sort());
+    const result = spawnSync(oxfmt, ["--check", "package.json"], { cwd: dir, encoding: "utf8" });
+    writeFileSync(join(dir, "package.json"), plan.packageText);
+    const check = spawnSync(oxfmt, ["--check", "package.json"], { cwd: dir, encoding: "utf8" });
+    assert.equal(
+      check.status,
+      0,
+      `${JSON.stringify(pkg)}\n${check.stdout}${check.stderr}${result.stdout}`,
+    );
+  }
+});

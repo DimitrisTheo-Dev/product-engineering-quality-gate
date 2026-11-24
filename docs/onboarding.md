@@ -19,18 +19,20 @@ node /path/to/product-engineering-quality-gate/runtime/gate.mjs
 QG_OPTIONS='{"deep":true}' node /path/to/product-engineering-quality-gate/runtime/gate.mjs --no-install
 ```
 
-`QG_OPTIONS` takes the workflow inputs as JSON (`working-directory`, `config`, `deep`, `check-timeout-seconds`). `--no-install` skips the locked install. A local run differs from CI in three ways: it runs every eligible check (no changed-path selection), it uses your Node and package manager, and no report verifier runs after it. Node 25 and later do not ship Corepack, so run `npm install --global corepack` first or use Node 24.
+`QG_OPTIONS` takes the workflow inputs as JSON (`working-directory`, `config`, `deep`, `check-timeout-seconds`). `--no-install` skips the locked install. Run it from the checkout root, which owns the lockfile, and set `working-directory` for a package inside a workspace. A local run differs from CI in three ways: it runs every eligible check (no changed-path selection), it uses your Node, and no report verifier runs after it. A pinned npm, pnpm or Yarn comes from Corepack, as in CI, and the gate writes a small shim for it under `$COREPACK_HOME/quality-gate-bin` (by default `~/.cache/node/corepack`) so package scripts that call the manager again get the same version. Node 25 and later do not ship Corepack, so run `npm install --global corepack` first or use Node 24.
+
+`--upgrade` changes only the workflow pin. It does not add `.quality-gate/` to `.gitignore`; add it yourself when upgrading from an earlier v2 commit.
 
 ## Presets
 
-| Option              | Effect                                                                                                                            |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `--preset oxc`      | Default. Exact Oxfmt and Oxlint pins, checked through local package scripts. Oxfmt skips the generated gate config.               |
-| `--preset biome`    | Exact Biome pin and `biome ci --reporter=github`. Keep your existing Biome config and fix its findings before requiring the gate. |
-| `--preset existing` | Uses existing lint and format-check scripts when found. Adds no tools or package scripts.                                         |
-| `--react-doctor`    | Adds React Doctor for a package that declares React.                                                                              |
-| `--fallow`          | Adds a deep Fallow check.                                                                                                         |
-| `--playwright`      | Adds the local Playwright Chromium setup script. Select your browser test separately.                                             |
+| Option              | Effect                                                                                                                                        |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--preset oxc`      | Default. Exact Oxfmt and Oxlint pins, checked through local package scripts. Oxfmt skips the generated gate config and `.quality-gate/`.      |
+| `--preset biome`    | Exact Biome pin and `biome ci` with Git ignore files enabled. Keep your existing Biome config and fix its findings before requiring the gate. |
+| `--preset existing` | Uses existing lint and format-check scripts when found. Adds no tools or package scripts.                                                     |
+| `--react-doctor`    | Adds React Doctor for a package that declares React.                                                                                          |
+| `--fallow`          | Adds a deep Fallow check.                                                                                                                     |
+| `--playwright`      | Adds the local Playwright Chromium setup script. Select your browser test separately.                                                         |
 
 The helper resolves `test:ci` or `test` into an explicit config entry. Use `--test-script`, `--typecheck-script`, or `--build-script` to select a different existing command. Use `--waive test`, `--waive typecheck`, or `--waive build` when the product intentionally omits a required check. The waiver appears in every report.
 

@@ -1,6 +1,6 @@
 # Product engineering quality gate
 
-A reusable GitHub Actions workflow for JS and TS repositories. It runs your own package scripts for format, lint, typecheck, tests and build on every pull request, and fails the job if any of them fail. Each run posts a PASS, FAIL or SKIPPED table and uploads a JSON report.
+A reusable GitHub Actions workflow for JS and TS repositories. It runs your own package scripts for format, lint, typecheck, tests and build on every pull request, and fails the job if any of them fail. Each run writes a PASS, FAIL or SKIPPED table to the job summary and uploads a JSON report.
 
 You need Node 24 and one lockfile (npm, pnpm, Yarn or Bun) at the repository root.
 
@@ -15,7 +15,7 @@ node scripts/onboard.mjs --repo /path/to/your-repo          # dry run, writes no
 node scripts/onboard.mjs --repo /path/to/your-repo --apply
 ```
 
-Apply changes these files in your repository:
+`--apply` changes these files in your repository:
 
 - `package.json` gets exact Oxfmt and Oxlint dev dependencies and two `quality:` scripts. Use `--preset biome` or `--preset existing` to keep your own tools.
 - The lockfile is updated for those dependencies.
@@ -23,13 +23,14 @@ Apply changes these files in your repository:
 - `.github/workflows/product-quality.yml` calls this workflow pinned to the v2.0.0 commit.
 - `.gitignore` gets `.quality-gate/`, where every run writes its report.
 
-Run the same checks locally, then open a pull request:
+Run the same checks locally from your repository root, then open a pull request:
 
 ```sh
 cd /path/to/your-repo
-npm install && npx oxfmt
 node /path/to/product-engineering-quality-gate/runtime/gate.mjs
 ```
+
+The gate installs from your lockfile first, with lifecycle scripts disabled, as CI does. With the Oxc preset, run `npx oxfmt` once after that install if the Oxfmt row fails on existing code, and commit the result.
 
 When `quality / Product engineering quality gate` passes, make it a required check. [Local runs and onboarding options](docs/onboarding.md)
 

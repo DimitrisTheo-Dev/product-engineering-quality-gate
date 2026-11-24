@@ -16,7 +16,7 @@ Use the existing package scripts. For example, a check with `"script": "test:ci"
 
 Check the artifact named by `report-name` for the gate's verdict, selected script bodies, tool versions, timings and skip reasons. A skipped row with `waived` records an explicit policy decision. A failed prerequisite can cause downstream rows to be skipped while the overall verdict remains failed.
 
-To reproduce the whole gate, run its runtime from the consumer's package with a checkout of the pinned gate commit. It writes the same `.quality-gate/report.json` and `summary.md` as CI:
+To reproduce the whole gate, run its runtime from the consumer's checkout root with a checkout of the pinned gate commit, and set `working-directory` in `QG_OPTIONS` for a workspace package. It writes the same `.quality-gate/report.json` and `summary.md` as CI:
 
 ```sh
 node /path/to/product-engineering-quality-gate/runtime/gate.mjs

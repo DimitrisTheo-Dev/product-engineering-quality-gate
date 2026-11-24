@@ -243,7 +243,9 @@ workflow.jobs.quality.steps.forEach((step, index) => {
 function emit(path, contents) {
   if (process.argv.includes("--check")) {
     if (readFileSync(path, "utf8") !== contents)
-      throw new Error("Generated workflow is stale. Run npm run generate and commit the result.");
+      throw new Error(
+        "Generated workflow is stale. Run npm run generate with Node 24.22.2, the version CI checks with, and commit the result.",
+      );
     console.log("Generated workflow matches its tested runtime: " + path.split("/").at(-1));
   } else writeFileSync(path, contents);
 }

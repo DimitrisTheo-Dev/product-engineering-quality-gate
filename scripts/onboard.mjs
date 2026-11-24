@@ -129,6 +129,37 @@ function v1Caller(source) {
   return { branch, inputs };
 }
 
+/**
+ * Add an empty devDependencies where package.json formatters expect it: after dependencies, or before the first
+ * field that sorts after it. Appending it after packageManager or engines fails Oxfmt and sort-package-json.
+ */
+export function addDevDependencies(pkg) {
+  if (pkg.devDependencies) return;
+  const later = [
+    "dependenciesMeta",
+    "peerDependencies",
+    "peerDependenciesMeta",
+    "optionalDependencies",
+    "bundledDependencies",
+    "bundleDependencies",
+    "overrides",
+    "resolutions",
+    "engines",
+    "packageManager",
+    "volta",
+    "publishConfig",
+    "os",
+    "cpu",
+  ];
+  const entries = Object.entries(pkg);
+  const after = entries.findIndex(([key]) => key === "dependencies");
+  const before = entries.findIndex(([key]) => later.includes(key));
+  const index = after >= 0 ? after + 1 : before >= 0 ? before : entries.length;
+  entries.splice(index, 0, ["devDependencies", {}]);
+  for (const key of Object.keys(pkg)) delete pkg[key];
+  Object.assign(pkg, Object.fromEntries(entries));
+}
+
 export function adoptionPlan(options) {
   if (options.migrate && options.upgrade) throw new Error("Choose --migrate or --upgrade.");
   const root = realpathSync(resolve(options.repo ?? process.cwd()));
@@ -231,7 +262,7 @@ export function adoptionPlan(options) {
       if (current !== undefined && (typeof current !== "string" || !exactVersion.test(current)))
         conflicts.push(`Pin the existing ${name}@${current} to an exact version.`);
       if (current === undefined) {
-        next.devDependencies ??= {};
+        addDevDependencies(next);
         next.devDependencies[name] = version;
       }
       config.tools.push(name);
@@ -333,12 +364,19 @@ export function adoptionPlan(options) {
   change(workflowPath, workflow);
   // Every run writes its report to .quality-gate/; keep it out of Git and out of format checks.
   const ignorePath = join(root, ".gitignore");
-  const ignored = existsSync(ignorePath) ? readFileSync(ignorePath, "utf8") : "";
-  if (!/^\/?\.quality-gate\/?\s*$/m.test(ignored))
-    change(
-      ignorePath,
-      `${ignored}${ignored && !ignored.endsWith("\n") ? "\n" : ""}.quality-gate/\n`,
-    );
+  if (existsSync(ignorePath) && lstatSync(ignorePath).isSymbolicLink())
+    warnings.push(".gitignore is a symlink; add .quality-gate/ to it yourself.");
+  else {
+    const ignored = existsSync(ignorePath) ? readFileSync(ignorePath, "utf8") : "";
+    // An existing entry, including a negation the repository chose, is left alone.
+    if (!/^!?\/?\.quality-gate(\/|\/\*\*)?[ \t]*\r?$/m.test(ignored)) {
+      const eol = ignored.includes("\r\n") ? "\r\n" : "\n";
+      change(
+        ignorePath,
+        `${ignored}${ignored && !ignored.endsWith("\n") ? eol : ""}.quality-gate/${eol}`,
+      );
+    }
+  }
   return {
     root,
     cwd,
