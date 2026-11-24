@@ -1,41 +1,42 @@
 # Product engineering quality gate
 
-A reusable GitHub Actions gate for JS and TS repositories. The central workflow handles locked installs, ordering, timeouts, and evidence. Each product keeps its own package scripts and decides which checks matter.
+A reusable GitHub Actions workflow for JS and TS repositories. It runs your own package scripts for format, lint, typecheck, tests and build on every pull request, and fails the job if any of them fail. Each run writes a PASS, FAIL or SKIPPED table to the job summary and uploads a JSON report.
+
+You need Node 24 and one lockfile (npm, pnpm, Yarn or Bun) at the repository root.
 
 [![Seven passing checks in a real v2 pull request](docs/images/quality-gate-pr-report.png)](https://github.com/DimitrisTheo-Dev/product-engineering-quality-gate/actions/runs/44051548625)
 
-Report rendered from the [pull request #1 job log](https://github.com/DimitrisTheo-Dev/product-engineering-quality-gate/actions/runs/44051548625/job/133930356046).
-
 ## Adopt it
 
-Run onboarding from a reviewed release checkout with Node 24. Start with a dry run, then inspect the generated patch after applying.
+```sh
+git clone --branch v2.0.0 https://github.com/DimitrisTheo-Dev/product-engineering-quality-gate.git
+cd product-engineering-quality-gate
+node scripts/onboard.mjs --repo /path/to/your-repo          # dry run, writes nothing
+node scripts/onboard.mjs --repo /path/to/your-repo --apply
+```
+
+`--apply` changes these files in your repository:
+
+- `package.json` gets exact Oxfmt and Oxlint dev dependencies and two `quality:` scripts. Use `--preset biome` or `--preset existing` to keep your own tools.
+- The lockfile is updated for those dependencies.
+- `quality-gate.config.json` lists the checks and maps them to your `typecheck`, `test` and `build` scripts.
+- `.github/workflows/product-quality.yml` calls this workflow pinned to the v2.0.0 commit.
+- `.gitignore` gets `.quality-gate/`, where every run writes its report.
+
+Run the same checks locally from your repository root, then open a pull request:
 
 ```sh
-node scripts/onboard.mjs --repo /path/to/product --preset oxc
-node scripts/onboard.mjs --repo /path/to/product --preset oxc --apply
+cd /path/to/your-repo
+node /path/to/product-engineering-quality-gate/runtime/gate.mjs
 ```
 
-Choose `oxc`, `biome`, or `existing`. Onboarding writes the selected package's config and a caller pinned to the exact release commit. Replace the SHA placeholder when copying this example.
+The gate installs from your lockfile first, with lifecycle scripts disabled, as CI does. With the Oxc preset, run `npx oxfmt` once after that install if the Oxfmt row fails on existing code, and commit the result.
 
-```yaml
-name: Product quality
-on:
-  pull_request:
-  merge_group:
-  push:
-    branches: [main]
-  workflow_dispatch:
-permissions:
-  contents: read
-concurrency:
-  group: product-quality-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref_name != github.event.repository.default_branch }}
-jobs:
-  quality:
-    uses: DimitrisTheo-Dev/product-engineering-quality-gate/.github/workflows/quality-gate.yml@RELEASE_SHA # v2.0.0
-```
+When `quality / Product engineering quality gate` passes, make it a required check. [Local runs and onboarding options](docs/onboarding.md)
 
-`quality-gate.config.json` describes the commands in that product.
+## What it reports
+
+`quality-gate.config.json` describes the checks. A check is any package script, so a project can add its own, such as a design linter:
 
 ```json
 {
@@ -43,22 +44,32 @@ jobs:
   "checks": [
     { "name": "Typecheck", "kind": "typecheck", "script": "typecheck" },
     { "name": "Tests", "kind": "test", "script": "test:ci" },
+    { "name": "Design rules", "kind": "design", "script": "design:check" },
     { "name": "Build", "kind": "build", "script": "build" },
     { "name": "Browser", "kind": "e2e", "script": "test:e2e", "tier": "deep" }
   ]
 }
 ```
 
-## What CI reports
+| Check                          | Status      | Evidence                                     |
+| ------------------------------ | ----------- | -------------------------------------------- |
+| Locked dependency installation | **PASS**    | `pnpm-lock.yaml; lifecycle scripts disabled` |
+| Typecheck                      | **PASS**    | `Package script typecheck completed.`        |
+| Tests                          | **FAIL**    | `Exit 1. Fix the diagnostics and rerun.`     |
+| Design rules                   | **PASS**    | `Package script design:check completed.`     |
+| Build                          | **PASS**    | `Package script build completed.`            |
+| Browser                        | **SKIPPED** | `Enable deep to run this check.`             |
 
-| Check                          | Status      | Evidence                   |
-| ------------------------------ | ----------- | -------------------------- |
-| Locked dependency installation | **PASS**    | Lifecycle scripts disabled |
-| Typecheck                      | **PASS**    | `typecheck` exited zero    |
-| Tests                          | **FAIL**    | `test:ci` exited 1         |
-| Build                          | **PASS**    | `build` exited zero        |
-| Browser                        | **SKIPPED** | `deep-tier`                |
+One failing check fails the job; the other checks still run and report. The JSON report also records the script bodies, tool versions, skip reasons and timings. When a product omits typecheck, tests or a build, an explicit waiver appears in the report.
 
-The example fails the job. The JSON report records the script bodies, tool versions, skip reasons, and timings. An explicit waiver appears in the report when a product omits typecheck, testing, or a build.
+## Three parts, one workflow
+
+| Step            | Project                                                          | What it gives you                                                                                        |
+| --------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Plan and design | [agent-skills](https://github.com/DimitrisTheo-Dev/agent-skills) | Skills that frame the work, set the design direction and review the rendered result                      |
+| Build           | [dtheo/ui](https://github.com/DimitrisTheo-Dev/dtheo-ui)         | React components and engineering charts, an MCP server for agents, and `dtheo check` for design mistakes |
+| Ship            | **product-engineering-quality-gate** (this repo)                 | A GitHub Actions gate that runs your checks, `dtheo check` included, and reports each one                |
+
+Each part works alone. [dtheo/ui](https://github.com/DimitrisTheo-Dev/dtheo-ui/actions/workflows/product-quality.yml) is the reference adopter: its gate runs tokens, format, lint, typecheck, tests, `dtheo check`, the build and an MCP trace check on every pull request.
 
 [Configuration and schema](docs/configuration.md) · [Onboarding](docs/onboarding.md) · [v1 migration](MIGRATION.md) · [Benchmarks](docs/benchmarks.md) · [Releases](docs/releases.md) · [Architecture and cache trust](docs/architecture.md) · [Troubleshooting](docs/troubleshooting.md)

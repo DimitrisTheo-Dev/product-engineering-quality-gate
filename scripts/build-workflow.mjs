@@ -56,7 +56,9 @@ function script(source, delimiter, entrypoint) {
 
 function runnerScript(source, delimiter, exported, entrypoint) {
   requireSafeDelimiter(source, delimiter);
-  const embedded = gzipSync(source)
+  const gzipped = gzipSync(source);
+  gzipped[9] = 3; // The gzip header records the build OS; fix it so macOS and Linux generate the same workflow.
+  const embedded = gzipped
     .toString("base64")
     .match(/.{1,120}/g)
     ?.join("\n");
@@ -241,7 +243,9 @@ workflow.jobs.quality.steps.forEach((step, index) => {
 function emit(path, contents) {
   if (process.argv.includes("--check")) {
     if (readFileSync(path, "utf8") !== contents)
-      throw new Error("Generated workflow is stale. Run npm run generate and commit the result.");
+      throw new Error(
+        "Generated workflow is stale. Run npm run generate with Node 24.22.2, the version CI checks with, and commit the result.",
+      );
     console.log("Generated workflow matches its tested runtime: " + path.split("/").at(-1));
   } else writeFileSync(path, contents);
 }
