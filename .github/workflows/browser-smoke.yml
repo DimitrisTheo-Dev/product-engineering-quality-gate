@@ -16,8 +16,6 @@ jobs:
   smoke:
     uses: ./.github/workflows/quality-gate.yml
     with:
-      config:
-        ${{ inputs.expect-failure && 'examples/browser-smoke/browser-failure.json' ||
-        'examples/browser-smoke/browser.json' }}
+      config: ${{ inputs.expect-failure && 'examples/browser-smoke/browser-failure.json' || 'examples/browser-smoke/browser.json' }}
       browser-evidence: true
       report-name: browser-smoke-report

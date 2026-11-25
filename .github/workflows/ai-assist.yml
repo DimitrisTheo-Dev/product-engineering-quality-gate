@@ -29,8 +29,7 @@ on:
         required: false
         default: 0
       budget-usd:
-        description:
-          Per-dispatch preflight budget estimate; maximum USD 1. Not a provider billing guarantee.
+        description: Per-dispatch preflight budget estimate; maximum USD 1. Not a provider billing guarantee.
         type: number
         required: false
         default: 0.05
@@ -46,23 +45,15 @@ concurrency:
   cancel-in-progress: false
 jobs:
   disabled:
-    if:
-      ${{ !(github.event_name == 'workflow_dispatch' && github.ref_name ==
-      github.event.repository.default_branch && inputs.confirm && vars.ENABLE_AI_ASSIST == 'true')
-      }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch && inputs.confirm && vars.ENABLE_AI_ASSIST == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
       - name: Explain opt-in requirements
         shell: bash
-        run:
-          echo '**NOT CONFIGURED / SKIPPED:** No provider request. Requires a manual default-branch
-          dispatch, confirm=true, and ENABLE_AI_ASSIST=true. See docs/ai-assistance.md.' >>
-          "$GITHUB_STEP_SUMMARY"
+        run: echo '**NOT CONFIGURED / SKIPPED:** No provider request. Requires a manual default-branch dispatch, confirm=true, and ENABLE_AI_ASSIST=true. See docs/ai-assistance.md.' >> "$GITHUB_STEP_SUMMARY"
   provider:
-    if:
-      ${{ github.event_name == 'workflow_dispatch' && github.ref_name ==
-      github.event.repository.default_branch && inputs.confirm && vars.ENABLE_AI_ASSIST == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch && inputs.confirm && vars.ENABLE_AI_ASSIST == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     environment: ai-assist
