@@ -1,4 +1,5 @@
 {
   "printWidth": 100,
-  "sortPackageJson": false
+  "sortPackageJson": false,
+  "overrides": [{ "files": ["*.md"], "options": { "proseWrap": "always" } }]
 }

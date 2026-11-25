@@ -1,10 +1,13 @@
 # Quality gate benchmarks
 
-The baseline uses v1.0.1 (`87f6ed7`) with Phase 0 timing instrumentation. It runs npm with the v1 commands and verdicts. Run the same harness after each optimization to record the before and after measurements.
+The baseline uses v1.0.1 (`87f6ed7`) with Phase 0 timing instrumentation. It runs npm with the v1
+commands and verdicts. Run the same harness after each optimization to record the before and after
+measurements.
 
 ## Method
 
-Run on Node 24 with npm. Install the browser and its system prerequisites before the benchmark. The root lockfile and the benchmark fixture pin the same version of Playwright.
+Run on Node 24 with npm. Install the browser and its system prerequisites before the benchmark. The
+root lockfile and the benchmark fixture pin the same version of Playwright.
 
 ```sh
 npm ci --ignore-scripts --no-audit --no-fund
@@ -12,18 +15,43 @@ npm ci --ignore-scripts --no-audit --no-fund
 node scripts/bench.mjs
 ```
 
-Use `--samples N` for more than five pairs. Use `--fixture node-ts` or `--fixture bench-vite-react` to run a single fixture. **Quality gate benchmark** (`benchmark.yml`) provides a manual dispatch on Ubuntu 24.04 with Node 24.22.2. It publishes results in the job summary and as a Markdown artifact. A maintainer can dispatch it when the workflow is on the default branch. [GitHub manual workflow documentation](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow).
+Use `--samples N` for more than five pairs. Use `--fixture node-ts` or `--fixture bench-vite-react`
+to run a single fixture. **Quality gate benchmark** (`benchmark.yml`) provides a manual dispatch on
+Ubuntu 24.04 with Node 24.22.2. It publishes results in the job summary and as a Markdown artifact.
+A maintainer can dispatch it when the workflow is on the default branch.
+[GitHub manual workflow documentation](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow).
 
-- The small fixture is `examples/node-ts`. The medium fixture is `examples/bench-vite-react` with React, Vite, Vitest and Playwright. The browser checks a search interaction against the production build. Both fixtures have committed npm lockfiles.
-- Each of five pairs uses a fresh npm cache and two independent copies of the fixture. Cold fills the download cache. Warm shares it and still performs a fresh locked install. Browser setup happens before both runs. Hosted cache restore and save latency remains to be measured.
-- After the warm run, the harness adds a script with body `node -e ""` to the temporary fixture. It times each script-backed gate row with that script, as well as direct `node -e ""`, `npm run` and `node --run` launches. The overhead is the paired difference between a gate no-op row and bare Node. The runtime continues to run the local Oxc tools during the probe.
-- Table values are in milliseconds, shown as medians with minimum and maximum in parentheses. Startup is internal to the Node process. Gate wall time includes process launch and exit. Manager detection covers the lockfile and declaration lookup. In v1 the npm/Corepack wrapper, when selected, runs inside install or script timings. The harness measures local report writes. A reusable-workflow run also times appending to the GitHub job summary. [Reporting model](configuration.md#reporting-model).
+- The small fixture is `examples/node-ts`. The medium fixture is `examples/bench-vite-react` with
+  React, Vite, Vitest and Playwright. The browser checks a search interaction against the production
+  build. Both fixtures have committed npm lockfiles.
+- Each of five pairs uses a fresh npm cache and two independent copies of the fixture. Cold fills
+  the download cache. Warm shares it and still performs a fresh locked install. Browser setup
+  happens before both runs. Hosted cache restore and save latency remains to be measured.
+- After the warm run, the harness adds a script with body `node -e ""` to the temporary fixture. It
+  times each script-backed gate row with that script, as well as direct `node -e ""`, `npm run` and
+  `node --run` launches. The overhead is the paired difference between a gate no-op row and bare
+  Node. The runtime continues to run the local Oxc tools during the probe.
+- Table values are in milliseconds, shown as medians with minimum and maximum in parentheses.
+  Startup is internal to the Node process. Gate wall time includes process launch and exit. Manager
+  detection covers the lockfile and declaration lookup. In v1 the npm/Corepack wrapper, when
+  selected, runs inside install or script timings. The harness measures local report writes. A
+  reusable-workflow run also times appending to the GitHub job summary.
+  [Reporting model](configuration.md#reporting-model).
 
 ## Local baseline
 
-Measured on 2026-11-16 on local Linux x64 with Node 24.22.1, npm 11.9.0 and nine CPUs visible to Node. There are five cold and five warm observations for each fixture. The medium fixture installed 67 packages on this host and ran the Playwright smoke check in all ten runs. The Playwright CDN returned truncated archives here, so the exact Chrome Headless Shell 158.0.8127.18 expected by Playwright 1.65.0 came from the Chrome for Testing distribution and was provisioned before timing. Hosted measurements are pending.
+Measured on 2026-11-16 on local Linux x64 with Node 24.22.1, npm 11.9.0 and nine CPUs visible to
+Node. There are five cold and five warm observations for each fixture. The medium fixture installed
+67 packages on this host and ran the Playwright smoke check in all ten runs. The Playwright CDN
+returned truncated archives here, so the exact Chrome Headless Shell 158.0.8127.18 expected by
+Playwright 1.65.0 came from the Chrome for Testing distribution and was provisioned before timing.
+Hosted measurements are pending.
 
-The medium fixture's median locked install fell from 7.28 s to 1.31 s with the warm download store, a 5.5× improvement before hosted cache transfer costs. Its total gate time fell from 10.66 s to 4.54 s. Median no-op overhead was 107–114 ms per scripted check, above the 50 ms target. Direct `node --run` took 58.53 ms compared with 53.14 ms for bare Node and 160.20 ms for `npm run` on this fixture.
+The medium fixture's median locked install fell from 7.28 s to 1.31 s with the warm download store,
+a 5.5× improvement before hosted cache transfer costs. Its total gate time fell from 10.66 s to 4.54
+s. Median no-op overhead was 107–114 ms per scripted check, above the 50 ms target. Direct
+`node --run` took 58.53 ms compared with 53.14 ms for bare Node and 160.20 ms for `npm run` on this
+fixture.
 
 ### Node and TypeScript
 
@@ -86,7 +114,9 @@ The medium fixture's median locked install fell from 7.28 s to 1.31 s with the w
 
 ## v2 local comparison
 
-The instrumented v1 baseline and v2 ran five independent cold and warm pairs on the same Linux host with Node 24.22.1 and npm 11.9.0. Times below are seconds, except the launch overhead rows marked in milliseconds. GitHub cache transfer time is outside the local measurements.
+The instrumented v1 baseline and v2 ran five independent cold and warm pairs on the same Linux host
+with Node 24.22.1 and npm 11.9.0. Times below are seconds, except the launch overhead rows marked in
+milliseconds. GitHub cache transfer time is outside the local measurements.
 
 | Median                                           | v1 Node TS | v2 Node TS | v1 Vite React | v2 Vite React |
 | ------------------------------------------------ | ---------: | ---------: | ------------: | ------------: |
@@ -97,11 +127,20 @@ The instrumented v1 baseline and v2 ran five independent cold and warm pairs on 
 | No-op overhead by scripted check, ms             |    113–121 |    119–159 |       107–114 |       108–208 |
 | Opt-in Node no-op overhead by scripted check, ms |        n/a |       3–14 |           n/a |      −0.2–4.2 |
 
-The v2 medium warm install was 4.8× faster than its cold install. The standalone cold run was slower than v1 in this sample. The registry timings varied, and v2 runs Oxfmt and Oxlint through package scripts and observes the actual npm version. Default launch overhead misses the 50 ms target. Preserving npm hook and environment behavior keeps npm as the default. Safe, opted-in Node scripts met the target in both fixtures. Negative paired deltas reflect measurement variation. [Node run semantics](https://nodejs.org/download/release/v24.22.2/docs/api/cli.html#--run).
+The v2 medium warm install was 4.8× faster than its cold install. The standalone cold run was slower
+than v1 in this sample. The registry timings varied, and v2 runs Oxfmt and Oxlint through package
+scripts and observes the actual npm version. Default launch overhead misses the 50 ms target.
+Preserving npm hook and environment behavior keeps npm as the default. Safe, opted-in Node scripts
+met the target in both fixtures. Negative paired deltas reflect measurement variation.
+[Node run semantics](https://nodejs.org/download/release/v24.22.2/docs/api/cli.html#--run).
 
-The warm medium docs-only run took 2.75 s and skipped the browser smoke with reason `no-matching-changes`. That single run used an actual Git comparison and the same warm download store.
+The warm medium docs-only run took 2.75 s and skipped the browser smoke with reason
+`no-matching-changes`. That single run used an actual Git comparison and the same warm download
+store.
 
-A paired medium-fixture probe on an existing locked install alternated five serial and five concurrent runs. Grouping Oxfmt, Oxlint, and Typecheck lowered median wall time from 3.69 s (3.61–3.98 s) to 3.25 s (3.15–3.32 s), about 12%. The browser, tests, and build were unchanged.
+A paired medium-fixture probe on an existing locked install alternated five serial and five
+concurrent runs. Grouping Oxfmt, Oxlint, and Typecheck lowered median wall time from 3.69 s
+(3.61–3.98 s) to 3.25 s (3.15–3.32 s), about 12%. The browser, tests, and build were unchanged.
 
 ### Node and TypeScript
 
@@ -180,18 +219,48 @@ Docs-only warm run took 2751.77 ms. Smoke was SKIPPED (`no-matching-changes`).
 
 ## Browser setup study
 
-Playwright 1.65.0 installed Chrome for Testing 158.0.8127.18 from a loopback mirror of the official archives on the same Linux host. One fresh install per option used the Playwright CLI. An independent zstd archive and extraction estimated the local work needed for a browser-directory cache keyed by that Playwright version. The measurements exclude remote download, GitHub cache transfer, and OS dependencies.
+Playwright 1.65.0 installed Chrome for Testing 158.0.8127.18 from a loopback mirror of the official
+archives on the same Linux host. One fresh install per option used the Playwright CLI. An
+independent zstd archive and extraction estimated the local work needed for a browser-directory
+cache keyed by that Playwright version. The measurements exclude remote download, GitHub cache
+transfer, and OS dependencies.
 
 | Chromium setup                   | Fresh install | Compressed directory | Local extraction |
 | -------------------------------- | ------------: | -------------------: | ---------------: |
 | Full Chromium and headless shell |        6.96 s |             306.0 MB |           1.03 s |
 | Headless shell only              |        3.09 s |             119.1 MB |           0.46 s |
 
-The benchmark workflow uses the headless shell because its smoke uses the default headless browser. The Playwright onboarding add-on keeps full Chromium for consumers with headed or channel-specific tests. The reusable workflow does not save browser caches. Hosted measurements of browser archive transfer are still pending. [Playwright browser installation](https://playwright.dev/docs/browsers#chromium-headless-shell).
+The benchmark workflow uses the headless shell because its smoke uses the default headless browser.
+The Playwright onboarding add-on keeps full Chromium for consumers with headed or channel-specific
+tests. The reusable workflow does not save browser caches. Hosted measurements of browser archive
+transfer are still pending.
+[Playwright browser installation](https://playwright.dev/docs/browsers#chromium-headless-shell).
 
 ## Phase 0 implementation plan
 
-1. **Make the verdict and evidence explicit.** Add the strict package-local config and schema, generic setup and checks, and onboarding presets. Keep configuration success as metadata so PASS rows correspond to command exits. Give a reported policy waiver its own machine-readable `waived` reason. Preserve install and setup failures, write the report before exit, and assert in an embedded workflow step that its verdict agrees with the checks step. Add focused regressions for each review finding before changing behavior or record the decision where the finding is a design choice.
-2. **Resolve managers once and measure download caching first.** Share detection and locked-install arguments across the runtime, onboarding, and verification. Verify the selected manager and its integrity before consumer scripts run. Key the download store by OS, architecture, actual manager version, Node major and lockfile hash. Restore in PR context. Save only on a default-branch push after an exact-key miss and a successful install. GitHub scopes PR-written caches to the PR merge ref. Measure cache transfer before claiming a hosted speedup. [GitHub cache scoping](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#restrictions-for-accessing-a-cache).
-3. **Reduce unnecessary execution.** Add Git-based `paths` with a full-run fallback for unknown changes and control-file edits, then measure headless browser setup and opt-in concurrent batches. Keep package-manager script behavior by default. Evaluate `node --run` only where the package can opt into its execution contract, since scripts can depend on manager variables even when they have no hooks. Compare using the no-op probes and fixtures with hooks and environment-dependent scripts. [Node 24 CLI documentation](https://nodejs.org/download/release/v24.22.2/docs/api/cli.html#--run).
-4. **Add Bun and verify the release candidate.** Verify exact-version Bun provisioning and frozen installs with scripts disabled. Run the full checklist plus Biome and Bun failure fixtures. Document migration, version pin upgrades, and design choices. Provide public and private consumer canary commands that exercise the embedded runtime from a pinned release candidate. Record cross-repository and hosted results when a maintainer can run them.
+1. **Make the verdict and evidence explicit.** Add the strict package-local config and schema,
+   generic setup and checks, and onboarding presets. Keep configuration success as metadata so PASS
+   rows correspond to command exits. Give a reported policy waiver its own machine-readable `waived`
+   reason. Preserve install and setup failures, write the report before exit, and assert in an
+   embedded workflow step that its verdict agrees with the checks step. Add focused regressions for
+   each review finding before changing behavior or record the decision where the finding is a design
+   choice.
+2. **Resolve managers once and measure download caching first.** Share detection and locked-install
+   arguments across the runtime, onboarding, and verification. Verify the selected manager and its
+   integrity before consumer scripts run. Key the download store by OS, architecture, actual manager
+   version, Node major and lockfile hash. Restore in PR context. Save only on a default-branch push
+   after an exact-key miss and a successful install. GitHub scopes PR-written caches to the PR merge
+   ref. Measure cache transfer before claiming a hosted speedup.
+   [GitHub cache scoping](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#restrictions-for-accessing-a-cache).
+3. **Reduce unnecessary execution.** Add Git-based `paths` with a full-run fallback for unknown
+   changes and control-file edits, then measure headless browser setup and opt-in concurrent
+   batches. Keep package-manager script behavior by default. Evaluate `node --run` only where the
+   package can opt into its execution contract, since scripts can depend on manager variables even
+   when they have no hooks. Compare using the no-op probes and fixtures with hooks and
+   environment-dependent scripts.
+   [Node 24 CLI documentation](https://nodejs.org/download/release/v24.22.2/docs/api/cli.html#--run).
+4. **Add Bun and verify the release candidate.** Verify exact-version Bun provisioning and frozen
+   installs with scripts disabled. Run the full checklist plus Biome and Bun failure fixtures.
+   Document migration, version pin upgrades, and design choices. Provide public and private consumer
+   canary commands that exercise the embedded runtime from a pinned release candidate. Record
+   cross-repository and hosted results when a maintainer can run them.

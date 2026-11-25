@@ -11,6 +11,10 @@
 | Package manager mismatch | Match `packageManager` to the install-root lockfile. For Bun, convert a binary lockfile to `bun.lock`.                                         |
 | Artifact upload failed   | Use a unique `report-name` per call and check the workflow logs for a missing report or invalid path.                                          |
 
-When one row fails and a later build passes, the job still fails. Detailed test output lives in the check log. A missing report or a report that disagrees with the check step also fails verification. [Reporting reference](configuration.md#reporting-model).
+When one row fails and a later build passes, the job still fails. Detailed test output lives in the
+check log. A missing report or a report that disagrees with the check step also fails verification.
+[Reporting reference](configuration.md#reporting-model).
 
-For browser evidence, review traces, screenshots, console logs, and captured requests before enabling uploads. Use synthetic data or scrub sensitive application content. For the AI workflow, use its separate [troubleshooting and controls](ai-assistance.md).
+For browser evidence, review traces, screenshots, console logs, and captured requests before
+enabling uploads. Use synthetic data or scrub sensitive application content. For the AI workflow,
+use its separate [troubleshooting and controls](ai-assistance.md).
