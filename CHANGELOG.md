@@ -1,6 +1,6 @@
 # Changelog
 
-## v2.0.0
+## v2.0.0 (2026-11-24)
 
 - Move checks and tool pins into package-local config, with explicit policy waivers and Oxc, Biome,
   and existing-script presets.

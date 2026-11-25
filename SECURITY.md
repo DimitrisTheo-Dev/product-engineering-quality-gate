@@ -1,8 +1,8 @@
 # Security
 
-Do not include credentials, private code, or sensitive CI artifacts in a public issue. For a
-sensitive report, contact the maintainer through GitHub's available private reporting channel or
-published profile contact method.
+Do not include credentials, private code, or sensitive CI artifacts in a public issue. Report a
+vulnerability privately at
+https://github.com/DimitrisTheo-Dev/product-engineering-quality-gate/security/advisories/new.
 
 The deterministic gate uses read-only repository contents access, does not persist checkout
 credentials, passes no provider secrets, and runs untrusted PR code only on ephemeral hosted
