@@ -1,8 +1,12 @@
 # Cross-repository canary
 
-The fixture installs one exact dependency and runs tests and a build. A manual run can select an intentionally missing build command. The same fixture works for a public consumer and a private consumer that is allowed to call the public central workflow.
+The fixture installs one exact dependency and runs tests and a build. A manual run can select an
+intentionally missing build command. The same fixture works for a public consumer and a private
+consumer that is allowed to call the public central workflow.
 
-From the central checkout, use the reviewed release candidate SHA once it is reachable on GitHub. The following commands use Bash and an authenticated GitHub CLI account with permission to create both repositories.
+From the central checkout, use the reviewed release candidate SHA once it is reachable on GitHub.
+The following commands use Bash and an authenticated GitHub CLI account with permission to create
+both repositories.
 
 ```bash
 export RC_SHA="$(git rev-parse HEAD)"
@@ -31,7 +35,8 @@ for visibility in public private; do
 done
 ```
 
-For each repository, inspect the default-branch run, dispatch the failure case, then download each report. Use the names created above and the run IDs shown by `gh run list`.
+For each repository, inspect the default-branch run, dispatch the failure case, then download each
+report. Use the names created above and the run IDs shown by `gh run list`.
 
 ```sh
 gh run list --repo "$CANARY_REPO" --workflow product-quality.yml
@@ -43,4 +48,8 @@ gh run download "$PASS_RUN_ID" --repo "$CANARY_REPO" --name canary-quality-repor
 gh run download "$FAIL_RUN_ID" --repo "$CANARY_REPO" --name canary-quality-report --dir fail-report
 ```
 
-Expect success for the push and failure for the manual probe. Confirm `passed: true` and `passed: false` in the two reports. Confirm the probe failed because Build names a missing script. Open a docs-only PR after the successful push to observe cache restore without a save. Record run URLs, conclusions, artifacts, and cache behavior before piloting one product. [GitHub CLI repository creation](https://cli.github.com/manual/gh_repo_create).
+Expect success for the push and failure for the manual probe. Confirm `passed: true` and
+`passed: false` in the two reports. Confirm the probe failed because Build names a missing script.
+Open a docs-only PR after the successful push to observe cache restore without a save. Record run
+URLs, conclusions, artifacts, and cache behavior before piloting one product.
+[GitHub CLI repository creation](https://cli.github.com/manual/gh_repo_create).

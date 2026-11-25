@@ -1,6 +1,8 @@
 # Official sources and version pins
 
-Reviewed during v1 implementation on 2026-11-08. Versions were verified against registry/release metadata, and relevant commands were exercised locally. Recheck documentation and licenses when upgrading; these links do not float the dependency versions used in CI.
+Reviewed during v1 implementation on 2026-11-08. Versions were verified against registry/release
+metadata, and relevant commands were exercised locally. Recheck documentation and licenses when
+upgrading; these links do not float the dependency versions used in CI.
 
 | Tool / platform             | Selected version                     | Official documentation                                                                                                                                                                                                                                                                         |
 | --------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -28,7 +30,11 @@ Official Actions are pinned to release commits, verified through GitHub's commit
 | actions/setup-node      | v7.1.0  | `949feb2413d6458794dcd2491c4babbbce0c15c1` |
 | actions/upload-artifact | v7.0.2  | `cf430e030ddbb5b0abf93d22962f4752f3646cd9` |
 
-No third-party action is used for the optional scanners. Maintainer scripts fetch exact official actionlint/Gitleaks release assets with `gh`, validate hard-coded SHA-256 hashes from their published checksum lists, extract only the named executable into a unique temporary directory, execute it, then remove that temporary directory. Linux x64 and macOS arm64 are covered by these helper pins. Other platforms can run official binaries manually.
+No third-party action is used for the optional scanners. Maintainer scripts fetch exact official
+actionlint/Gitleaks release assets with `gh`, validate hard-coded SHA-256 hashes from their
+published checksum lists, extract only the named executable into a unique temporary directory,
+execute it, then remove that temporary directory. Linux x64 and macOS arm64 are covered by these
+helper pins. Other platforms can run official binaries manually.
 
 ## v2 package managers and workflows
 
@@ -42,4 +48,8 @@ No third-party action is used for the optional scanners. Maintainer scripts fetc
 | GitHub cache scoping and split actions                                                                  | [GitHub cache scoping](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#restrictions-for-accessing-a-cache), [Cache v5.1.0](https://github.com/actions/cache/tree/v5.1.0).              |
 | Package manager behavior                                                                                | [npm ci](https://docs.npmjs.com/cli/v11/commands/npm-ci), [pnpm settings](https://pnpm.io/settings), [Yarn install](https://yarnpkg.com/cli/install), [Yarn cache](https://yarnpkg.com/features/caching).                    |
 
-Oxlint detects GitHub Actions and uses its native annotations. Fallow 3.41.0 exposes `--format github-annotations` in the four preset subcommands. The React Doctor 0.9.22 CLI exposes structured JSON, and its check uses the gate error annotation. [Oxlint formats](https://oxc.rs/docs/guide/usage/linter/output-formats#format-github) · [Fallow CLI reporting](https://fallow.tools/docs/cli/report/).
+Oxlint detects GitHub Actions and uses its native annotations. Fallow 3.41.0 exposes
+`--format github-annotations` in the four preset subcommands. The React Doctor 0.9.22 CLI exposes
+structured JSON, and its check uses the gate error annotation.
+[Oxlint formats](https://oxc.rs/docs/guide/usage/linter/output-formats#format-github) ·
+[Fallow CLI reporting](https://fallow.tools/docs/cli/report/).

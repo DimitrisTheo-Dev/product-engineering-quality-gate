@@ -1,6 +1,8 @@
 # Product engineering quality gate
 
-A reusable GitHub Actions workflow for JS and TS repositories. It runs your own package scripts for format, lint, typecheck, tests and build on every pull request, and fails the job if any of them fail. Each run writes a PASS, FAIL or SKIPPED table to the job summary and uploads a JSON report.
+A reusable GitHub Actions workflow for JS and TS repositories. It runs your own package scripts for
+format, lint, typecheck, tests and build on every pull request, and fails the job if any of them
+fail. Each run writes a PASS, FAIL or SKIPPED table to the job summary and uploads a JSON report.
 
 You need Node 24 and one lockfile (npm, pnpm, Yarn or Bun) at the repository root.
 
@@ -17,9 +19,11 @@ node scripts/onboard.mjs --repo /path/to/your-repo --apply
 
 `--apply` changes these files in your repository:
 
-- `package.json` gets exact Oxfmt and Oxlint dev dependencies and two `quality:` scripts. Use `--preset biome` or `--preset existing` to keep your own tools.
+- `package.json` gets exact Oxfmt and Oxlint dev dependencies and two `quality:` scripts. Use
+  `--preset biome` or `--preset existing` to keep your own tools.
 - The lockfile is updated for those dependencies.
-- `quality-gate.config.json` lists the checks and maps them to your `typecheck`, `test` and `build` scripts.
+- `quality-gate.config.json` lists the checks and maps them to your `typecheck`, `test` and `build`
+  scripts.
 - `.github/workflows/product-quality.yml` calls this workflow pinned to the v2.0.0 commit.
 - `.gitignore` gets `.quality-gate/`, where every run writes its report.
 
@@ -30,13 +34,17 @@ cd /path/to/your-repo
 node /path/to/product-engineering-quality-gate/runtime/gate.mjs
 ```
 
-The gate installs from your lockfile first, with lifecycle scripts disabled, as CI does. With the Oxc preset, run `npx oxfmt` once after that install if the Oxfmt row fails on existing code, and commit the result.
+The gate installs from your lockfile first, with lifecycle scripts disabled, as CI does. With the
+Oxc preset, run `npx oxfmt` once after that install if the Oxfmt row fails on existing code, and
+commit the result.
 
-When `quality / Product engineering quality gate` passes, make it a required check. [Local runs and onboarding options](docs/onboarding.md)
+When `quality / Product engineering quality gate` passes, make it a required check.
+[Local runs and onboarding options](docs/onboarding.md)
 
 ## What it reports
 
-`quality-gate.config.json` describes the checks. A check is any package script, so a project can add its own, such as a design linter:
+`quality-gate.config.json` describes the checks. A check is any package script, so a project can add
+its own, such as a design linter:
 
 ```json
 {
@@ -60,7 +68,9 @@ When `quality / Product engineering quality gate` passes, make it a required che
 | Build                          | **PASS**    | `Package script build completed.`            |
 | Browser                        | **SKIPPED** | `Enable deep to run this check.`             |
 
-One failing check fails the job; the other checks still run and report. The JSON report also records the script bodies, tool versions, skip reasons and timings. When a product omits typecheck, tests or a build, an explicit waiver appears in the report.
+One failing check fails the job; the other checks still run and report. The JSON report also records
+the script bodies, tool versions, skip reasons and timings. When a product omits typecheck, tests or
+a build, an explicit waiver appears in the report.
 
 ## Three parts, one workflow
 
@@ -70,6 +80,11 @@ One failing check fails the job; the other checks still run and report. The JSON
 | Build           | [dtheo/ui](https://github.com/DimitrisTheo-Dev/dtheo-ui)         | React components and engineering charts, an MCP server for agents, and `dtheo check` for design mistakes |
 | Ship            | **product-engineering-quality-gate** (this repo)                 | A GitHub Actions gate that runs your checks, `dtheo check` included, and reports each one                |
 
-Each part works alone. [dtheo/ui](https://github.com/DimitrisTheo-Dev/dtheo-ui/actions/workflows/product-quality.yml) is the reference adopter: its gate runs tokens, format, lint, typecheck, tests, `dtheo check`, the build and an MCP trace check on every pull request.
+Each part works alone.
+[dtheo/ui](https://github.com/DimitrisTheo-Dev/dtheo-ui/actions/workflows/product-quality.yml) is
+the reference adopter: its gate runs tokens, format, lint, typecheck, tests, `dtheo check`, the
+build and an MCP trace check on every pull request.
 
-[Configuration and schema](docs/configuration.md) · [Onboarding](docs/onboarding.md) · [v1 migration](MIGRATION.md) · [Benchmarks](docs/benchmarks.md) · [Releases](docs/releases.md) · [Architecture and cache trust](docs/architecture.md) · [Troubleshooting](docs/troubleshooting.md)
+[Configuration and schema](docs/configuration.md) · [Onboarding](docs/onboarding.md) ·
+[v1 migration](MIGRATION.md) · [Benchmarks](docs/benchmarks.md) · [Releases](docs/releases.md) ·
+[Architecture and cache trust](docs/architecture.md) · [Troubleshooting](docs/troubleshooting.md)
